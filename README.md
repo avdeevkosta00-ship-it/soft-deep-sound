@@ -215,7 +215,7 @@ Your library lives in `%APPDATA%/Soft&Deep Sound/library.json`.
 - Fonts: [Unbounded](https://fonts.google.com/specimen/Unbounded), Manrope, JetBrains Mono, Instrument Serif (SIL Open Font License)
 - Open music sources: Openverse, Internet Archive, ccMixter, Jamendo
 
-Made by **Konstantin** as a personal project, with a lot of help from an AI assistant.
+Made by **Infallible** as a personal project, with a lot of help from an AI assistant.
 Bug reports and ideas are very welcome in [Issues](https://github.com/infallibl3/soft-deep-sound/issues).
 
 <div align="center">
