@@ -1,0 +1,6 @@
+Все шрифты в этой папке распространяются по лицензии SIL Open Font License 1.1 (полный текст — unbounded-OFL.txt).
+
+Manrope          — © The Manrope Project Authors (github.com/sharanda/manrope)
+JetBrains Mono   — © The JetBrains Mono Project Authors (github.com/JetBrains/JetBrainsMono)
+Instrument Serif — © The Instrument Serif Project Authors (github.com/Instrument/instrument-serif)
+Unbounded        — © The Unbounded Project Authors (github.com/googlefonts/unbounded)

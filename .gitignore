@@ -1,0 +1,19 @@
+# зависимости — ставятся командой npm install, в репозиторий не кладём
+node_modules/
+
+# собранные программы (.exe) — выкладываются через GitHub Releases, а не в код
+dist/
+out/
+
+# служебное
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+
+# ключи и личные настройки — никогда не публиковать
+.env
+.env.*

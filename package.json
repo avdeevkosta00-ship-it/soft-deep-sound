@@ -1,0 +1,68 @@
+{
+  "name": "soft-deep-sound",
+  "productName": "Soft&Deep Sound",
+  "version": "1.9.0",
+  "description": "Soft&Deep Sound — desktop music player",
+  "main": "main.js",
+  "author": "Konstantin",
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "dist": "electron-builder --win nsis portable --publish never",
+    "dist:dir": "electron-builder --win dir --publish never"
+  },
+  "dependencies": {
+    "music-metadata": "7.14.0"
+  },
+  "devDependencies": {
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.konstantin.softdeepsound",
+    "productName": "Soft&Deep Sound",
+    "files": [
+      "main.js",
+      "preload.js",
+      "src/**",
+      "renderer/**",
+      "build/*.png",
+      "package.json"
+    ],
+    "win": {
+      "icon": "build/*.png",
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "Soft&Deep Sound",
+      "artifactName": "SoftDeepSound-Setup-${version}.${ext}",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "fileAssociations": [
+      {
+        "ext": [
+          "mp3",
+          "flac",
+          "wav",
+          "ogg",
+          "m4a"
+        ],
+        "name": "Audio",
+        "role": "Viewer"
+      }
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "portable": {
+      "artifactName": "SoftDeepSound-Portable-${version}.${ext}"
+    }
+  }
+}

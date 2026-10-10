@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="ru" data-theme="soft">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' sds:; script-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' sds: data: blob:; media-src 'self' sds: blob: https:; font-src 'self'; connect-src 'self' sds: blob:; worker-src 'self' blob:">
+<title>Soft&amp;Deep Sound</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="themes-sd.css">
+</head>
+<body>
+
+<!-- ======================= SPLASH ======================= -->
+<div id="splash" aria-hidden="true">
+  <svg class="splash-lines" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice">
+    <defs>
+      <linearGradient id="sg1" x1="0" x2="1"><stop offset="0" stop-color="#7d88c4" stop-opacity="0"/><stop offset=".5" stop-color="#5a66a8"/><stop offset="1" stop-color="#7d88c4" stop-opacity="0"/></linearGradient>
+    </defs>
+    <path class="draw d1" d="M 260 1040 C 120 640, 300 330, 560 390 C 820 450, 980 640, 1640 650"/>
+    <path class="draw d2" d="M 380 470 C 700 210, 1250 120, 1660 60"/>
+    <path class="draw d3" d="M 1150 -40 L 1480 1040"/>
+    <ellipse class="splash-ell" cx="1180" cy="760" rx="330" ry="220"/>
+  </svg>
+  <div class="splash-orb"></div>
+  <div class="splash-dot"></div>
+  <div class="wordmark">
+    <div class="wm-row"><span class="wm-word" data-split>Soft</span><span class="wm-amp">&amp;</span><span class="wm-word" data-split>Deep</span></div>
+    <div class="wm-sound" data-split>Sound</div>
+    <div class="wm-line"></div>
+  </div>
+  <div class="splash-foot">v1.9</div>
+</div>
+
+<!-- ======================= APP ======================= -->
+<canvas id="bgfx"></canvas>
+<canvas id="shapes" aria-hidden="true"></canvas>
+<div id="app">
+  <div class="bass-glow"></div>
+
+  <header class="titlebar">
+    <div class="brand" id="brandHome" data-i18n-title="brand.home">
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="13.5" class="bm-ring"/><path d="M8 19 C 11 9, 15 9, 16 16 S 21 23, 24 13" class="bm-wave"/><path d="M21 4 L26 28" class="bm-cut"/></svg>
+      <div class="brand-text"><b>Soft<i>&amp;</i>Deep</b><span>SOUND</span></div>
+    </div>
+
+    <div class="search" id="search">
+      <svg class="search-ico" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.2"/><path d="M15.2 15.2l4.6 4.6"/><path d="M7.6 9.2a3.2 3.2 0 0 1 2.4-2"/></svg>
+      <input id="searchInput" type="text" autocomplete="off" spellcheck="false" data-i18n-ph="search.ph">
+      <span class="search-scope" id="searchScope" data-i18n="scope.local"></span>
+      <kbd>Ctrl K</kbd>
+      <div class="search-pop" id="searchPop"></div>
+    </div>
+
+    <div class="title-actions">
+      <button class="sd-switch" id="sdSwitch" role="switch" aria-checked="false" data-i18n-title="sd.title" aria-label="Soft / Deep"><span class="sd-knob"></span><span class="sd-l">SOFT</span><span class="sd-l">DEEP</span></button>
+      <button class="theme-btn" id="themeBtn" data-i18n-title="theme.title"><span class="sw" id="themeSw"></span><span id="themeName">Soft</span></button>
+      <button class="icon-btn" id="layoutBtn" data-i18n-title="layout.title"><svg viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M9 4.5v15M15 4.5v15"/></svg></button>
+      <button class="icon-btn" id="settingsBtn" data-i18n-title="settings.title"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6.6"/><path d="M12 2.8v3.4M12 17.8v3.4M2.8 12h3.4M17.8 12h3.4"/><path d="M12 12l2.6-2.6"/><circle class="fill" cx="12" cy="12" r="1.25"/></svg></button>
+      <div class="win-ctrls">
+        <button data-win="min" data-i18n-title="win.min"><svg viewBox="0 0 12 12"><path d="M2 6h8"/></svg></button>
+        <button data-win="max" data-i18n-title="win.max"><svg viewBox="0 0 12 12"><rect x="2.2" y="2.2" width="7.6" height="7.6" rx="1.5"/></svg></button>
+        <button data-win="close" class="close" data-i18n-title="win.close"><svg viewBox="0 0 12 12"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7"/></svg></button>
+      </div>
+    </div>
+  </header>
+
+  <aside class="sidebar glass panel" data-panel="side">
+    <nav class="nav">
+      <button class="nav-item active" data-view="library"><svg viewBox="0 0 24 24"><rect x="3.6" y="4.5" width="3.8" height="15" rx="1"/><rect x="9.6" y="4.5" width="3.8" height="15" rx="1"/><path d="M15.6 5.6l3.6-1 2.7 13.9-3.6 1z"/><circle class="fill" cx="5.5" cy="16.6" r=".95"/><circle class="fill" cx="11.5" cy="16.6" r=".95"/></svg><span data-i18n="nav.library"></span><em id="libCount">0</em></button>
+      <button class="nav-item" data-view="queue"><svg viewBox="0 0 24 24"><circle class="fill" cx="4.6" cy="6.5" r="1.15"/><circle class="fill" cx="4.6" cy="12" r="1.15"/><circle class="fill" cx="4.6" cy="17.5" r="1.15"/><path d="M8.5 6.5h11M8.5 12h11M8.5 17.5h6.5"/></svg><span data-i18n="nav.queue"></span><em id="queueCount">0</em></button>
+      <button class="nav-item" data-view="recent"><svg viewBox="0 0 24 24"><path d="M4.9 12A7.1 7.1 0 1 0 7 7"/><path d="M4.4 4.2v3.6H8"/><path d="M12 8.2V12l2.6 1.6"/><circle class="fill" cx="12" cy="12" r=".9"/></svg><span data-i18n="nav.recent"></span></button>
+      <button class="nav-item" data-view="health"><svg viewBox="0 0 24 24"><path d="M4.5 19V9.5M9 19V5M13.5 19v-7.5"/><path d="M15.5 12.5h1.6l1.2-2.6 1.6 5 1.1-2.4h.9"/></svg><span data-i18n="nav.health"></span></button>
+      <button class="nav-item nav-session" id="sessionBtn"><svg viewBox="0 0 24 24"><path d="M3.5 14.5c2.2-4.6 4.4-4.6 6.6 0s4.4 4.6 6.6 0"/><path d="M18.5 3.8v3.6M16.7 5.6h3.6"/></svg><span data-i18n="nav.session"></span><em class="nav-new" data-i18n="nav.new"></em></button>
+    </nav>
+
+    <div class="side-head">
+      <span data-i18n="side.playlists"></span>
+      <button class="mini-btn" id="newPlaylistBtn" data-i18n-title="side.newPl"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+    </div>
+    <div class="playlists" id="playlists"></div>
+
+    <div class="import-card">
+      <div class="import-label"><span data-i18n="imp.label"></span><span class="barcode" aria-hidden="true"></span></div>
+      <button class="chrome-pill" id="importBtn"><span class="cp-ico"><svg viewBox="0 0 24 24"><path d="M12 19V6M6.5 11.5 12 6l5.5 5.5"/></svg></span><span data-i18n="imp.add"></span></button>
+      <button class="text-btn" id="importFolderBtn" data-i18n="imp.folder"></button>
+    </div>
+  </aside>
+
+  <main class="content glass panel" id="content" data-panel="main">
+    <div class="hud-frame" aria-hidden="true"><i class="hf-c tl"></i><i class="hf-c tr"></i><i class="hf-c bl"></i><i class="hf-c br"></i><span class="hf-rule"></span><span class="hf-tag">SOFT&amp;DEEP SOUND™</span></div>
+    <div id="view" class="view"></div>
+  </main>
+
+  <aside class="nowplaying glass panel" id="nowplaying" data-panel="np">
+    <div class="np-label"><span class="np-dot"></span><span data-i18n="np.label"></span><button class="np-expand" id="npExpand" data-i18n-title="dv.open" aria-label="Deep View"><svg viewBox="0 0 24 24"><path d="M14.5 4.5h5v5M9.5 19.5h-5v-5M19.5 4.5l-6 6M4.5 19.5l6-6"/></svg></button></div>
+    <div class="cover-frame" id="coverFrame">
+      <div class="cover" id="cover"></div>
+      <div class="cover-gloss"></div>
+      <button class="cover-edit" id="coverEdit" data-i18n-title="np.change"><svg viewBox="0 0 24 24"><path d="M14.6 5.4l4 4L9.3 18.7l-4.6.6.6-4.6z"/><path d="M12.8 7.2l4 4"/></svg></button>
+    </div>
+    <div class="np-meta">
+      <div class="np-title" id="npTitle" data-i18n="np.none"></div>
+      <div class="np-artist" id="npArtist" data-i18n="np.hint"></div>
+    </div>
+    <div class="np-badges" id="npBadges"></div>
+    <div class="np-hud" aria-hidden="true"><span class="nh-state" id="nhState">▶</span><span class="nh-time" id="nhTime">00:00</span><span class="nh-line"><i id="nhDot"></i></span><span class="nh-num" id="nhNum">001</span></div>
+    <div class="viz-wrap"><canvas id="viz"></canvas></div>
+    <div class="np-next">
+      <div class="np-next-head"><span data-i18n="np.next"></span><button class="text-btn" data-view="queue" data-i18n="np.all"></button></div>
+      <div id="upNext" class="upnext"></div>
+    </div>
+  </aside>
+
+  <!-- tool rack: opens above the deck, not a separate window -->
+  <section class="rack" id="rack" aria-hidden="true">
+    <div class="rack-tabs" id="rackTabs">
+      <button class="rack-tab" data-tool="pitch"><span class="led"></span><span data-i18n="rack.pitch"></span></button>
+      <button class="rack-tab" data-tool="ambient"><span class="led"></span><span data-i18n="rack.ambient"></span></button>
+      <button class="rack-tab" data-tool="eq"><span class="led"></span><span data-i18n="rack.eq"></span></button>
+      <span class="rack-spacer"></span>
+      <button class="rack-export" id="rackExport" data-i18n-title="m.export"><svg viewBox="0 0 24 24"><path d="M12 4v10M8 10l4 4 4-4"/><path d="M5 15v3.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V15"/></svg><span data-i18n="ex.btn"></span></button>
+      <button class="mini-btn" id="rackClose" data-i18n-title="rack.close"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
+    </div>
+    <div class="rack-body" id="rackBody"></div>
+  </section>
+
+  <footer class="deck glass">
+    <div class="deck-left">
+      <div class="disc-wrap"><svg class="disc-ring" viewBox="0 0 100 100" aria-hidden="true"><defs><path id="ringPath" d="M50,50 m-42,0 a42,42 0 1,1 84,0 a42,42 0 1,1 -84,0"/></defs><text><textPath href="#ringPath" textLength="262" lengthAdjust="spacing">SOFT&amp;DEEP · SOUND · LISTEN · FEEL · BE HERE · </textPath></text></svg><div class="deck-cover" id="deckCover"></div></div>
+      <div class="deck-meta"><div class="deck-title" id="deckTitle">—</div><div class="deck-artist" id="deckArtist"></div></div>
+    </div>
+
+    <div class="deck-center">
+      <div class="transport">
+        <button class="tbtn small" id="shuffleBtn" data-i18n-title="tr.shuffle"><svg viewBox="0 0 24 24"><path d="M3.5 7.5h2.6c4.4 0 5.4 9 9.9 9h2.6"/><path d="M3.5 16.5h2.6c1.5 0 2.6-1 3.5-2.5M13.9 9.9c.9-1.4 2-2.4 3.4-2.4h1.3"/><circle class="fill" cx="20.2" cy="7.5" r="1.5"/><circle class="fill" cx="20.2" cy="16.5" r="1.5"/></svg></button>
+        <button class="tbtn" id="prevBtn" data-i18n-title="tr.prev"><svg viewBox="0 0 24 24"><path class="fill" d="M18 6v12l-8.5-6zM6 6h2.2v12H6z"/></svg></button>
+        <button class="play-btn" id="playBtn" data-i18n-title="tr.play">
+          <span class="play-bezel"></span>
+          <svg viewBox="0 0 24 24"><path class="pp a"/><path class="pp b"/></svg>
+        </button>
+        <button class="tbtn" id="nextBtn" data-i18n-title="tr.next"><svg viewBox="0 0 24 24"><path class="fill" d="M6 6v12l8.5-6zM15.8 6H18v12h-2.2z"/></svg></button>
+        <button class="tbtn small" id="repeatBtn"><svg viewBox="0 0 24 24"><path d="M4.5 12.5V9.4A2.6 2.6 0 0 1 7.1 6.8h10"/><path d="M19.5 11.5v3.1a2.6 2.6 0 0 1-2.6 2.6h-10"/><circle class="fill" cx="18.6" cy="6.8" r="1.5"/><circle class="fill" cx="5.4" cy="17.2" r="1.5"/></svg><b class="rep-one">1</b></button>
+        <span class="transport-sep"></span>
+        <button class="tools-btn" id="toolsBtn" data-i18n-title="tr.tools">
+          <span class="tb-lines"><i></i><i></i><i></i></span>
+          <span class="tb-leds"><i data-led="pitch"></i><i data-led="ambient"></i><i data-led="eq"></i></span>
+        </button>
+      </div>
+      <div class="timeline">
+        <span class="time" id="curTime">0:00</span>
+        <div class="seek" id="seek">
+          <canvas id="waveCanvas"></canvas>
+          <div class="seek-track"><div class="seek-fill" id="seekFill"></div></div>
+          <div class="seek-thumb" id="seekThumb"></div>
+          <div class="seek-tip" id="seekTip">0:00</div>
+        </div>
+        <span class="time" id="durTime">0:00</span>
+      </div>
+    </div>
+
+    <div class="deck-right">
+      <button class="icon-btn" id="queueToggle" data-i18n-title="tr.queue" data-view="queue"><svg viewBox="0 0 24 24"><circle class="fill" cx="4.6" cy="6.5" r="1.15"/><circle class="fill" cx="4.6" cy="12" r="1.15"/><circle class="fill" cx="4.6" cy="17.5" r="1.15"/><path d="M8.5 6.5h11M8.5 12h11M8.5 17.5h6.5"/></svg></button>
+      <button class="icon-btn" id="muteBtn" data-i18n-title="tr.mute"><svg viewBox="0 0 24 24"><path class="fill" d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path class="vol-w1" d="M15 9.5a3.5 3.5 0 0 1 0 5"/><path class="vol-w2" d="M17.5 7a7 7 0 0 1 0 10"/></svg></button>
+      <div class="vol" id="vol" data-i18n-title="tr.vol">
+        <div class="vol-track"><div class="vol-fill" id="volFill"></div></div>
+        <div class="vol-thumb" id="volThumb"></div>
+        <span class="vol-tip" id="volVal">80%</span>
+      </div>
+    </div>
+  </footer>
+
+  <div class="drop-overlay" id="dropOverlay"><div class="drop-card"><svg viewBox="0 0 24 24"><path d="M12 19V6M6.5 11.5 12 6l5.5 5.5"/></svg><b data-i18n="drop.title"></b><span data-i18n="drop.formats"></span></div></div>
+</div>
+
+<div id="toasts"></div>
+<div id="ctxmenu" class="ctxmenu"></div>
+<div id="modal" class="modal"></div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
