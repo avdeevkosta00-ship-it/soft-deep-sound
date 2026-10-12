@@ -410,10 +410,19 @@ function registerIpc() {
   ipcMain.handle('export:write', async (_e, { path: fp, data }) => {
     if (!exportTargets.has(fp)) throw new Error('Path was not chosen in the save dialog');
     exportTargets.delete(fp);
-    await fsp.mkdir(path.dirname(fp), { recursive: true });
+    // the save dialog only offers existing folders; mkdir is a fallback, and on Windows
+    // mkdir of a drive root ("E:\") fails with EPERM even though the drive is writable
+    const dir = path.dirname(fp);
+    const exists = await fsp.stat(dir).then((s) => s.isDirectory(), () => false);
+    if (!exists) await fsp.mkdir(dir, { recursive: true });
     const tmp = fp + '.part';
-    await fsp.writeFile(tmp, Buffer.from(data.buffer || data, data.byteOffset || 0, data.byteLength));
-    await fsp.rename(tmp, fp);
+    try {
+      await fsp.writeFile(tmp, Buffer.from(data.buffer || data, data.byteOffset || 0, data.byteLength));
+      await fsp.rename(tmp, fp);
+    } catch (err) {
+      await fsp.unlink(tmp).catch(() => {});
+      throw err;
+    }
     return fp;
   });
   ipcMain.handle('library:reveal', (_e, p) => shell.showItemInFolder(p));
