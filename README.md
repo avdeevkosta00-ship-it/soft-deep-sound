@@ -2,225 +2,175 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/media/banner-deep.webp">
-  <img src="docs/media/banner-soft.webp" alt="Soft&Deep Sound — a calm, beautiful music player for Windows" width="820">
+  <img src="docs/media/banner-soft.webp" alt="Soft&Deep Sound" width="820">
 </picture>
 
 <br><br>
 
-**A calm, beautiful music player for Windows.**<br>
-Living 3D backgrounds that breathe with your music, plus real audio tools: pitch, ambience, EQ and export.
+**Спокойный и красивый музыкальный плеер для Windows.**<br>
+Живой 3D-фон, который дышит вместе с музыкой, и настоящие аудиоинструменты: тональность, эмбиент, эквалайзер и экспорт.
 
 <br>
 
 [![Release](https://img.shields.io/github/v/release/infallibl3/soft-deep-sound?style=flat-square&color=3d5afe&label=release)](https://github.com/infallibl3/soft-deep-sound/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/infallibl3/soft-deep-sound/total?style=flat-square&color=7c4dff)](https://github.com/infallibl3/soft-deep-sound/releases)
 ![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0b1220?style=flat-square&logo=windows&logoColor=white)
-![Electron](https://img.shields.io/badge/Electron-vanilla%20JS-0b1220?style=flat-square&logo=electron&logoColor=9feaf9)
 [![License](https://img.shields.io/github/license/infallibl3/soft-deep-sound?style=flat-square&color=0b1220)](LICENSE)
 
-**[⬇ Download](https://github.com/infallibl3/soft-deep-sound/releases/latest)** &nbsp;·&nbsp;
-[Features](#features) &nbsp;·&nbsp;
-[Shortcuts](#keyboard-shortcuts) &nbsp;·&nbsp;
-[Build from source](#build-from-source) &nbsp;·&nbsp;
-[Русский](README.ru.md)
+**[⬇ Скачать](https://github.com/infallibl3/soft-deep-sound/releases/latest)** &nbsp;·&nbsp;
+[Возможности](#возможности) &nbsp;·&nbsp;
+[Горячие клавиши](#горячие-клавиши) &nbsp;·&nbsp;
+[Сборка](#сборка-из-исходников) &nbsp;·&nbsp;
+[English](README.en.md)
 
 <br>
 
-<img src="docs/media/demo.gif" alt="Switching from Soft to Deep and opening Deep View" width="880">
+<img src="docs/media/demo.gif" alt="Переключение Soft → Deep и полноэкранный режим" width="880">
 
 </div>
 
 <br>
 
-## Why another music player?
+## Зачем ещё один плеер?
 
-Most desktop players are either **powerful but look like a spreadsheet**, or **pretty but shallow**.
-Soft&Deep Sound tries to be both: something you'd happily leave open on a second monitor, with tools you'd normally need three apps for.
+Большинство плееров либо **мощные, но выглядят как таблица**, либо **красивые, но пустые**.
+Soft&Deep Sound пытается совместить и то и другое: его приятно держать открытым на втором мониторе, и в нём есть инструменты, для которых обычно нужны три разные программы.
 
-- 🫧 **It feels alive.** A 3D point-cloud sphere breathes slowly when it's quiet and pulses with the bass when music plays. Smaller shapes drift around it.
-- 🎚 **It has real tools.** Pitch shift, ambient soundscapes that duck under vocals, a 10-band EQ, and you can save the result as a new track.
-- 🔒 **It's yours.** Local files, no accounts, no ads, no telemetry.
+- 🫧 **Он живой.** Сфера из тысяч точек медленно дышит в тишине и пульсирует в такт басу, когда играет музыка. Вокруг неё плавают фигуры поменьше.
+- 🎚 **В нём есть настоящие инструменты.** Сдвиг тональности, эмбиент, который сам затихает под вокалом, 10-полосный эквалайзер. Результат можно сохранить как новый трек.
+- 🔒 **Он ваш.** Локальные файлы, без аккаунтов, рекламы и телеметрии.
 
 <br>
 
-## Two moods, four themes
+## Два настроения, четыре темы
 
-**Soft** is sky, cobalt and frosted glass. **Deep** is black glass and neon. Press <kbd>D</kbd> to flip between them with a smooth circular transition.
-**Pearl** and **Obsidian** are variations on the same idea. Obsidian replaces the sphere with holographic dot landscapes.
+**Soft**: небо, кобальт, матовое стекло. **Deep**: чёрное стекло и неон. Клавиша <kbd>D</kbd> переключает их с плавным круговым переходом.
+**Pearl** и **Obsidian** развивают ту же идею. В Obsidian вместо сферы на фоне голографические пейзажи из точек.
 
 <p align="center">
-  <img src="docs/media/themes.webp" alt="Soft, Deep, Pearl and Obsidian themes" width="100%">
+  <img src="docs/media/themes.webp" alt="Темы Soft, Deep, Pearl и Obsidian" width="100%">
 </p>
 
 <br>
 
-## Features
+## Возможности
 
 ### 🎼 Sound Pitcher
-Change a song's key without changing its tempo, in semitones with fine cents. Or switch to **Vinyl** mode, where speed and pitch move together for the classic slowed / sped-up sound.
+Меняет тональность песни без изменения темпа, по полутонам с точной подстройкой в центах. Режим **Vinyl** меняет скорость и высоту вместе, как у пластинки.
 
 <p align="center"><img src="docs/media/pitch.webp" alt="Sound Pitcher" width="760"></p>
 
 ### 🌧 Ambient Generator + Smart Duck
-Mix **rain, ocean, fireplace, train or vinyl crackle** under any track. Everything is generated in real time, so there are no loops to notice.
-**Smart Duck** listens to the song and quietly lowers the ambience when vocals come in, so the voice always stays clear.
+**Дождь, океан, камин, поезд или треск винила** под любым треком. Звуки генерируются на лету, поэтому повторяющихся петель не слышно.
+**Smart Duck** слушает песню и тихо убавляет эмбиент, когда вступает голос.
 
 <p align="center"><img src="docs/media/ambient.webp" alt="Ambient Generator" width="760"></p>
 
-### 🎛 10-band Equalizer
-Graphic EQ with a live curve, preamp and presets: Bass, Warm, Vocal, Bright, Loudness, Lo-Fi, Night.
+### 🎛 10-полосный эквалайзер
+Графический эквалайзер с живой кривой, предусилением и пресетами.
 
-<p align="center"><img src="docs/media/eq.webp" alt="Equalizer" width="760"></p>
+<p align="center"><img src="docs/media/eq.webp" alt="Эквалайзер" width="760"></p>
 
-### 💾 Save with effects
-Like how it sounds? Render the pitched + EQ'd + ambient version to **MP3 (320 kbps)** or **WAV (16-bit, dithered)**, with tags kept. The new file appears in your library right away, and the original is never touched. <kbd>Ctrl</kbd>+<kbd>S</kbd>
+### 💾 Сохранить с эффектами
+Понравился звук? Сохраните версию с Pitch, эквалайзером и эмбиентом в **MP3 320 kbps** или **WAV 16 бит**, теги сохранятся. Новый файл сразу появится в медиатеке, оригинал не меняется. <kbd>Ctrl</kbd>+<kbd>S</kbd>
 
-<p align="center"><img src="docs/media/export.webp" alt="Save as a new track" width="520"></p>
+<p align="center"><img src="docs/media/export.webp" alt="Сохранить как новый трек" width="520"></p>
 
-### 🌌 Deep View & Visual mode
-<kbd>F</kbd> opens **Deep View**, a fullscreen now-playing screen with the track's analysis: BPM, key (with Camelot), loudness (LUFS), dynamics, sound character and similar tracks from your library.
-<kbd>V</kbd> dissolves the whole interface into a field of light waves.
+### 🌌 Погружение и визуализация
+<kbd>F</kbd> открывает полноэкранный режим с анализом трека: BPM, тональность (с кодом Camelot), громкость LUFS, динамика, характер звучания и похожие треки из медиатеки.
+<kbd>V</kbd> растворяет интерфейс в поле световых волн.
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/media/deepview.webp" alt="Deep View"></td>
-    <td width="50%"><img src="docs/media/visual.webp" alt="Visual mode"></td>
-  </tr>
-  <tr>
-    <td align="center"><sub>Deep View</sub></td>
-    <td align="center"><sub>Visual mode</sub></td>
+    <td width="50%"><img src="docs/media/deepview.webp" alt="Погружение"></td>
+    <td width="50%"><img src="docs/media/visual.webp" alt="Визуализация"></td>
   </tr>
 </table>
 
-### ✨ Smart Session
-Pick a mood (Calm, Deep, Energetic or Dark), a length and a tempo range, and get a ready-made queue. It avoids recent repeats and too many songs by one artist in a row. Save it as a playlist with one click.
+### ✨ Умная сессия
+Выберите настроение, длительность и темп и получите готовую очередь без недавних повторов. Её можно сохранить как плейлист одной кнопкой.
 
-<p align="center"><img src="docs/media/session.webp" alt="Smart Session" width="620"></p>
+<p align="center"><img src="docs/media/session.webp" alt="Умная сессия" width="620"></p>
 
-### 🔎 Search that forgives you
-Typos, transliteration (`kino` finds «Кино»), even typing in the wrong keyboard layout (`ьфвщттф` → `madonna`).
-<kbd>Enter</kbd> plays the best match instantly. <kbd>Shift</kbd>+<kbd>Enter</kbd> also searches open music sources: Openverse, Internet Archive, ccMixter and Jamendo. You can also paste a link to any page and the player will find the audio files on it.
+### 🔎 Поиск, который прощает ошибки
+Находит треки с опечатками, по транслиту («kino» найдёт «Кино») и даже при неправильной раскладке («ьфвщттф» → «madonna»).
+<kbd>Enter</kbd> сразу включает лучший трек, <kbd>Shift</kbd>+<kbd>Enter</kbd> ищет ещё и в открытых источниках. Можно вставить ссылку на страницу: плеер найдёт на ней аудиофайлы.
 
-<p align="center"><img src="docs/media/search.webp" alt="Fuzzy search" width="620"></p>
+<p align="center"><img src="docs/media/search.webp" alt="Поиск" width="620"></p>
 
-### 🩺 Library Health
-Finds broken Cyrillic tags (mojibake like `Ïðèâåò`) and fixes them, plus duplicates, missing covers and tags, lost files and low-quality copies.
+### 🩺 Состояние медиатеки
+Находит и исправляет битые названия (кракозябры вроде `Ïðèâåò`). Показывает дубликаты, треки без обложек и тегов, пропавшие файлы и копии низкого качества.
 
-<p align="center"><img src="docs/media/health.webp" alt="Library Health" width="880"></p>
+<p align="center"><img src="docs/media/health.webp" alt="Состояние медиатеки" width="880"></p>
 
-### And also
-- **Background play in the tray.** Closing the window keeps the music going. The tray menu has play/pause, next/previous, volume and a **sleep timer** (15–90 min or end of track, with a soft fade-out).
-- **Windows integration:** taskbar thumbnail buttons, media keys, optional start with Windows.
-- **Drag & drop** files and folders, playlists, custom covers, editable track info (your files are never modified).
-- **Flexible layout:** drag panels, resize them, hide what you don't need.
-- **English and Russian** interface.
+### А ещё
+- **Работа в трее.** Если закрыть окно, музыка продолжит играть. В меню трея есть управление, громкость и **таймер сна** с плавным затуханием.
+- Кнопки на панели задач, мультимедийные клавиши, автозапуск вместе с Windows.
+- Перетаскивание файлов и папок, плейлисты, свои обложки. Данные трека правятся только в плеере, сами файлы не трогаются.
+- Перестраиваемые панели, русский и английский интерфейс.
 
 <br>
 
-## Download
+## Скачать
 
-1. Open **[Releases](https://github.com/infallibl3/soft-deep-sound/releases/latest)**.
-2. Download one of:
-   - `SoftDeepSound-Setup-x.y.z.exe`: an installer with a desktop shortcut;
-   - `SoftDeepSound-Portable-x.y.z.exe`: a single file, no install needed.
+1. Откройте **[Releases](https://github.com/infallibl3/soft-deep-sound/releases/latest)**.
+2. Скачайте нужный файл:
+   - `SoftDeepSound-Setup-x.y.z.exe`: установщик, создаёт ярлык на рабочем столе;
+   - `SoftDeepSound-Portable-x.y.z.exe`: один файл, работает без установки.
 
 > [!NOTE]
-> The app isn't code-signed (certificates are expensive for a hobby project), so Windows SmartScreen may say *"Windows protected your PC"*.
-> Click **More info → Run anyway**, or [build it yourself](#build-from-source) from the source code.
+> У программы нет платной цифровой подписи, поэтому Windows может показать «Система Windows защитила ваш компьютер».
+> Нажмите **«Подробнее» → «Выполнить в любом случае»**.
 
 <br>
 
-## Keyboard shortcuts
+## Горячие клавиши
 
-| Key | Action | Key | Action |
+| Клавиша | Действие | Клавиша | Действие |
 |---|---|---|---|
-| <kbd>Space</kbd> | Play / pause | <kbd>Ctrl</kbd>+<kbd>K</kbd> | Search |
-| <kbd>←</kbd> <kbd>→</kbd> | Seek ±5 s (<kbd>Shift</kbd> ±15 s) | <kbd>Ctrl</kbd>+<kbd>←</kbd> <kbd>→</kbd> | Previous / next track |
-| <kbd>↑</kbd> <kbd>↓</kbd> | Volume | <kbd>M</kbd> | Mute |
-| <kbd>S</kbd> | Shuffle | <kbd>R</kbd> | Repeat |
-| <kbd>P</kbd> <kbd>A</kbd> <kbd>E</kbd> | Pitch / Ambient / Equalizer | <kbd>Ctrl</kbd>+<kbd>S</kbd> | Save with effects |
-| <kbd>F</kbd> | Deep View | <kbd>V</kbd> | Visual mode |
-| <kbd>D</kbd> | Soft ↔ Deep | <kbd>Esc</kbd> | Close panel |
+| <kbd>Space</kbd> | Пуск / пауза | <kbd>Ctrl</kbd>+<kbd>K</kbd> | Поиск |
+| <kbd>←</kbd> <kbd>→</kbd> | ±5 с (<kbd>Shift</kbd> ±15 с) | <kbd>Ctrl</kbd>+<kbd>←</kbd> <kbd>→</kbd> | Предыдущий / следующий трек |
+| <kbd>↑</kbd> <kbd>↓</kbd> | Громкость | <kbd>M</kbd> | Без звука |
+| <kbd>S</kbd> | Перемешать | <kbd>R</kbd> | Повтор |
+| <kbd>P</kbd> <kbd>A</kbd> <kbd>E</kbd> | Pitch / Ambient / Эквалайзер | <kbd>Ctrl</kbd>+<kbd>S</kbd> | Сохранить с эффектами |
+| <kbd>F</kbd> | Погружение | <kbd>V</kbd> | Визуализация |
+| <kbd>D</kbd> | Soft ↔ Deep | <kbd>Esc</kbd> | Закрыть панель |
 
-Knobs and faders: drag, scroll the mouse wheel, or double-click to reset.
+Ручки и фейдеры можно тянуть мышью или крутить колесом. Двойной клик сбрасывает значение.
 
 <br>
 
-## Build from source
+## Сборка из исходников
 
-You need [Node.js](https://nodejs.org) 20 or newer.
+Нужен [Node.js](https://nodejs.org) версии 20 или новее.
 
 ```bash
 git clone https://github.com/infallibl3/soft-deep-sound.git
 cd soft-deep-sound
 npm install
-npm start          # run in development
-npm run dist       # build the installer and portable .exe into dist/
+npm start          # запуск для разработки
+npm run dist       # сборка установщика и portable .exe в папку dist/
 ```
 
-On Windows you can also just double-click **`BUILD-EXE.bat`**: it installs Node.js if needed and builds everything.
-Every tag like `v1.9.0` is built automatically by GitHub Actions and published to Releases.
+Или дважды щёлкните **`BUILD-EXE.bat`**: скрипт сам поставит Node.js и всё соберёт.
+Каждый тег вида `v1.9.0` автоматически собирается через GitHub Actions и публикуется в Releases.
+
+Как всё устроено внутри, описано в [ARCHITECTURE.md](ARCHITECTURE.md) и в разделе «Under the hood» [английского README](README.en.md).
 
 <br>
 
-<details>
-<summary><b>🛠 Under the hood</b></summary>
-<br>
+## Благодарности
 
-| Part | How it works |
-|---|---|
-| App | Electron with plain HTML, CSS and JavaScript, no frameworks. `contextIsolation`, sandbox, a custom `sds://` protocol for local files |
-| Background | WebGL point clouds displaced by 3D simplex noise in the vertex shader, lit with rim and specular light. Quality adapts to the frame rate, and rendering pauses when the window is hidden |
-| Pitch | A custom `AudioWorklet` pitch shifter, so the tempo stays the same |
-| Ambience | Procedural sound generators, plus a vocal-band detector that drives Smart Duck |
-| Analysis | BPM, key, LUFS and waveform peaks in a Web Worker |
-| Export | The whole effect chain is replayed in an `OfflineAudioContext`. WAV gets TPDF dither; MP3 is encoded with lamejs in a Worker |
-| Search | Damerau–Levenshtein distance, Cyrillic↔Latin transliteration, keyboard-layout swap and field weighting |
-| Online | Open-licence sources only; downloads go through SSRF-safe fetching (manual redirects, public-IP checks) |
+- Кодирование MP3: [lamejs](https://github.com/zhuker/lamejs) (LGPL-3.0)
+- Шрифты Unbounded, Manrope, JetBrains Mono, Instrument Serif (SIL Open Font License)
+- Открытые источники музыки: Openverse, Internet Archive, ccMixter, Jamendo
 
-More detail in [ARCHITECTURE.md](ARCHITECTURE.md).
-
-</details>
-
-<details>
-<summary><b>📁 Project structure</b></summary>
-<br>
-
-```
-main.js                   window, tray, sds:// protocol, IPC, tags & covers
-preload.js                narrow bridge to the renderer
-src/search/               open-source music search and safe downloads
-renderer/
-  index.html, styles.css  layout and design system
-  themes-sd.css           Soft / Deep tone styles
-  js/app.js               library, playlists, queue, views
-  js/audio-engine.js      Web Audio graph
-  js/pitch-worklet.js     key shift (AudioWorklet)
-  js/ambient.js           procedural ambience + Smart Duck
-  js/shapes.js            WebGL sphere and dot landscapes
-  js/exporter.js          offline render, WAV/MP3 encoding
-  js/fuzzy.js             typo-tolerant local search
-  js/deepview.js          fullscreen now-playing
-```
-
-Your library lives in `%APPDATA%/Soft&Deep Sound/library.json`.
-
-</details>
-
-<br>
-
-## Credits
-
-- MP3 encoding: [lamejs](https://github.com/zhuker/lamejs) (LGPL-3.0)
-- Fonts: [Unbounded](https://fonts.google.com/specimen/Unbounded), Manrope, JetBrains Mono, Instrument Serif (SIL Open Font License)
-- Open music sources: Openverse, Internet Archive, ccMixter, Jamendo
-
-Made by **Infallible** as a personal project, with a lot of help from an AI assistant.
-Bug reports and ideas are very welcome in [Issues](https://github.com/infallibl3/soft-deep-sound/issues).
+Автор **Константин**. Это личный проект, сделанный с большой помощью ИИ-ассистента.
+Идеи и баги пишите в [Issues](https://github.com/infallibl3/soft-deep-sound/issues).
 
 <div align="center">
 <br>
 
-If you like it, a ⭐ helps other people find the project.
+Если плеер понравился, поставьте ⭐: так проект увидит больше людей.
 
 </div>
