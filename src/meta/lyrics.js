@@ -17,7 +17,8 @@ const { httpFetch } = require('../search/http');
 
 const API = 'https://lrclib.net/api';
 const MAX_FILE = 512 * 1024;
-const MISS_TTL = 14 * 864e5; // a miss is asked again after two weeks
+const MISS_TTL = 14 * 864e5; // a miss is asked again after two weeks…
+const RULES = 2;             // …or at once after the lookup improves (2: lost apostrophes, «weren t»)
 
 let deps = null; // { version, userDir, audioExt }
 let mm = null;
@@ -54,16 +55,18 @@ async function fromTags(file) {
   } catch { return null; }
 }
 
-async function fromLrclib({ title, artist, album, duration }) {
+async function fromLrclib({ title, artist, album, duration }, force) {
   // names from download sites carry junk («1546698_Apoplexy», «(zaycev.net)»): search with the clean ones
   const { stripJunk } = await deps.names();
   title = stripJunk(title); artist = stripJunk(artist);
   if (!title) return null;
   // without an artist only the length can tell one «Apoplexy» from another
   if (!artist && !(duration > 0)) return null;
-  const key = crypto.createHash('sha1').update([artist, title, album, Math.round(duration || 0)].join('|').toLowerCase()).digest('hex');
+  // RULES is part of the key: when the lookup gets better, old «nothing found» answers are not trusted any more
+  const key = crypto.createHash('sha1').update([RULES, artist, title, album, Math.round(duration || 0)].join('|').toLowerCase()).digest('hex');
   const file = path.join(cacheDir(), key + '.json');
-  try {
+  // «search again» skips what was remembered: the last attempt may have hit a busy server
+  if (!force) try {
     const c = JSON.parse(await fsp.readFile(file, 'utf8'));
     if (c.text || Date.now() - c.at < MISS_TTL) return c.text ? { source: 'lrclib', text: c.text, match: c.match || null } : c.match ? { source: null, text: '', match: c.match } : null;
   } catch {}
@@ -98,10 +101,37 @@ async function fromLrclib({ title, artist, album, duration }) {
     const fit = list.filter((r) => !(duration > 0) || !r.duration || Math.abs(r.duration - duration) <= 3);
     text = pick(fit.find((r) => r.syncedLyrics) || fit[0]);
   }
+  if (!text) {
+    // file names lose apostrophes («U Weren t Here»), and the search then looks for «weren» and «t»:
+    // ask again in free form with the pieces joined, and keep only an entry that really is this track
+    const joined = joinPieces(title);
+    for (const q of [`${artist} ${joined}`, joined]) {
+      const list = await ask(`${API}/search?${new URLSearchParams({ q })}`) || [];
+      const best = pickFit(list, { title, artist, duration });
+      if (best) { text = pick(best); break; }
+    }
+  }
   await remember(file, text, match);
   // no words, but the real name is still worth suggesting
   return text ? { source: 'lrclib', text, match } : match ? { source: null, text: '', match } : null;
 }
+/** «Weren t», «don t», «I m» → «Werent», «dont», «Im»: what a lost apostrophe leaves behind, joined back */
+function joinPieces(s) {
+  return String(s).replace(/(\p{L}+) (t|s|re|ll|ve|d|m)(?!\p{L})/giu, '$1$2');
+}
+/**
+ * The search entry that is this track: same title (spelling aside), a close artist and length.
+ * Some uploads have artist and title swapped — those count too.
+ */
+function pickFit(list, { title, artist, duration }) {
+  const flat = (x) => deps.norm(joinPieces(x || '')).replace(/ /g, '');
+  const tOk = (x) => flat(x) === flat(title) || deps.sim(joinPieces(x || ''), joinPieces(title)) >= .9;
+  const aOk = (x) => !artist || (!!x && (deps.sim(x, artist) >= .5 || flat(x).includes(flat(artist)) || flat(artist).includes(flat(x))));
+  const fit = list.filter((r) => (r.syncedLyrics || r.plainLyrics) && (!(duration > 0) || (r.duration && Math.abs(r.duration - duration) <= 3)) &&
+    ((tOk(r.trackName) && aOk(r.artistName)) || (tOk(r.artistName) && aOk(r.trackName))));
+  return fit.find((r) => r.syncedLyrics) || fit[0] || null;
+}
+
 async function remember(file, text, match) {
   try { await fsp.mkdir(cacheDir(), { recursive: true }); await fsp.writeFile(file, JSON.stringify({ at: Date.now(), text, match })); } catch {}
 }
@@ -113,13 +143,22 @@ async function fromOwnCopy(file) {
 }
 const isAudio = (file) => path.isAbsolute(file) && deps.audioExt.has(path.extname(file).toLowerCase()) && fs.existsSync(file);
 
-/** never overwrites a .lrc that is already there; returns where the text went */
-async function save(file, text) {
+/**
+ * Never overwrites a .lrc that is already there — unless the user asked to replace their text with one found
+ * online: then the old file is kept next to it as «.lrc.bak». Returns where the text went.
+ */
+async function save(file, text, replace = false) {
   text = String(text || '').replace(/\r\n?/g, '\n').trim();
   if (!isAudio(file) || !text || text.length > MAX_FILE / 2) throw new Error('bad-lyrics');
   const side = path.join(path.dirname(file), path.basename(file, path.extname(file)) + '.lrc');
+  const body = '﻿' + text + '\n';
+  if (replace && fs.existsSync(side)) {
+    try { await fsp.copyFile(side, side + '.bak'); await fsp.writeFile(side, body); return { where: 'lrc', backup: true }; }
+    catch { throw new Error('read-only'); } // the old file stays in charge: say so rather than pretend
+  }
   try {
-    await fsp.writeFile(side, '﻿' + text + '\n', { flag: 'wx' });
+    await fsp.writeFile(side, body, { flag: 'wx' });
+    if (replace) await fsp.rm(ownFile(file), { force: true }).catch(() => {});
     return { where: 'lrc' };
   } catch {
     const own = ownFile(file);
@@ -129,14 +168,15 @@ async function save(file, text) {
   }
 }
 
-async function get(t, { online }) {
+/** skipLocal: «search online» next to the user's own text — look past the .lrc, the tags and our copy */
+async function get(t, { online, force, skipLocal }) {
   const file = String(t.path || '');
-  if (isAudio(file)) {
+  if (isAudio(file) && !skipLocal) {
     const own = (await fromSidecar(file)) || (await fromTags(file)) || (await fromOwnCopy(file));
     if (own) return own;
   }
-  if (!online) return { source: null, text: '', offline: true };
-  return (await fromLrclib(t)) || { source: null, text: '' };
+  if (!online && !skipLocal) return { source: null, text: '', offline: true };
+  return (await fromLrclib(t, force)) || { source: null, text: '' };
 }
 
 module.exports = { init, get, save };

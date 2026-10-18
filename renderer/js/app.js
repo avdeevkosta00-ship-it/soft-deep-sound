@@ -30,7 +30,7 @@ const DEFAULTS = {
   ambient: { depth: .7, sens: .5, master: .8, levels: { rain: .55, ocean: .55, vinyl: .45, fire: .5, train: .5 } },
   eq: { on: true, gains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], pre: 0, preset: 'flat' },
   layout: null, bgAnalyze: true, exportFormat: 'mp3', exportAdd: true, spotifyClientId: '', tourDone: false, showcaseDone: false, lyricsOnline: true,
-  look: { accent: 'theme', fx: 'live', blur: 'normal' }
+  look: { accent: 'theme', fx: 'live', blur: 'normal', bgList: [], bgActive: null, bgDim: 'soft' }
 };
 const THEMES = [
   { key: 'soft', tone: 'light', name: 'th.soft', desc: 'th.soft.d', bg: 'linear-gradient(170deg,#9fc6f2,#eef5fd)', p: '#ffffffaa', a: '#1f45e8', t: '#0a1450' },
@@ -929,11 +929,13 @@ function openExport(t = S.current) {
 const sessionOpts = { mood: 'deep', minutes: 45, bpm: null, noRepeat: true, artistCap: true, fromCurrent: false };
 /* lyrics: one answer per track per session (the main process keeps the LRCLIB cache on disk) */
 const lyricsCache = new Map();
-async function getLyrics(t, force) {
+async function getLyrics(t, force, skipLocal) {
   if (!bridge.lyrics) return { text: '', offline: true };
+  // «search online» past the user's own text: a one-off preview, never cached in place of their lyrics
+  if (skipLocal) return bridge.lyrics.get({ path: t.path, title: t.title, artist: t.artist, album: t.album, duration: t.duration }, { online: true, force: true, skipLocal: true });
   // the promise itself is cached, so reopening Deep View while a slow lookup runs waits for the same answer
   if (!force && lyricsCache.has(t.id)) return lyricsCache.get(t.id);
-  const p = bridge.lyrics.get({ path: t.path, title: t.title, artist: t.artist, album: t.album, duration: t.duration }, { online: S.settings.lyricsOnline });
+  const p = bridge.lyrics.get({ path: t.path, title: t.title, artist: t.artist, album: t.album, duration: t.duration }, { online: S.settings.lyricsOnline, force: !!force });
   lyricsCache.set(t.id, p);
   p.then((res) => { if (!res && lyricsCache.get(t.id) === p) lyricsCache.delete(t.id); }, () => { if (lyricsCache.get(t.id) === p) lyricsCache.delete(t.id); });
   return p;
@@ -1529,6 +1531,26 @@ async function setPlaylistCover(pl) {
   if (S.view.type === 'playlist' && S.view.id === pl.id) render(false);
   toast(tr('toast.plCoverOk', { name: pl.name }));
 }
+/** Settings → «Папка загрузок»: where downloads from open sources go; change, open, back to the default */
+function dlRow(paths) {
+  const where = h('small', { class: 'mono set-path' }, paths.downloads);
+  const reset = h('button', { class: 'text-btn' }, tr('set.dlReset'));
+  reset.hidden = !paths.downloadsCustom;
+  const change = h('button', { class: 'chip-btn' }, tr('set.dlChange'));
+  const open = h('button', { class: 'chip-btn' }, tr('set.dlOpen'));
+  change.onclick = async () => {
+    try {
+      const dir = await bridge.app.pickDownloads();
+      if (dir) { where.textContent = dir; reset.hidden = false; toast(tr('set.dlDone')); }
+    } catch (e) { toast(/not-writable/.test(String(e && e.message)) ? tr('set.dlNoWrite') : String(e && e.message || e)); }
+  };
+  open.onclick = () => bridge.app.openDownloads();
+  reset.onclick = async () => { where.textContent = await bridge.app.resetDownloads(); reset.hidden = true; };
+  if (!bridge.app.pickDownloads) { change.hidden = true; open.hidden = true; }
+  return h('div', { class: 'set-row' }, h('div', { class: 'set-dl' }, h('b', {}, tr('set.dl')), where),
+    h('div', { class: 'set-acts' }, reset, open, change));
+}
+
 async function openSettings() {
   const paths = await bridge.app.paths();
   const prefs = bridge.app.prefs ? await bridge.app.prefs() : null;
@@ -1550,7 +1572,7 @@ async function openSettings() {
     prefs && prefs.autostart !== null && prefs.autostart !== undefined ? h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('set.auto')), h('small', {}, tr('set.autoD'))), tg(prefs.autostart, (v) => bridge.app.setPref('autostart', v))) : null,
     h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('tour.set')), h('small', {}, tr('tour.setD'))), h('button', { class: 'chip-btn', onClick: () => { closeModal(); setTimeout(() => tour.start(), 380); } }, tr('tour.setBtn'))),
     h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('set.jam')), h('small', {}, tr('set.jamD'))), jam),
-    h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('set.dl')), h('small', { class: 'mono' }, paths.downloads))),
+    dlRow(paths),
     h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('set.keys')),
       h('small', { html: tr('set.keysD') }))),
     h('div', { style: { display: 'flex', justifyContent: 'flex-end', marginTop: '12px' } }, h('button', { class: 'chip-btn', onClick: closeModal }, tr('set.done')))));
@@ -1675,7 +1697,8 @@ async function boot() {
     shapes = new Shapes($('#shapes'), { isPlaying: () => engine.playing, energy: () => Math.min(1, viz.bass * 1.4) });
     bg.gl = true; bg.resize();
   } catch (e) { console.warn('shapes off:', e.message); $('#shapes').remove(); }
-  look = createAppearance({ S, save, hslToRgb, rgbToHsl, coverColor, onChange: refreshCanvases });
+  look = createAppearance({ S, save, bridge, toast, hslToRgb, rgbToHsl, coverColor, onChange: refreshCanvases,
+    energy: () => (viz && engine.playing ? Math.min(1, viz.bass * 1.4) : 0) });
   layout = new Layout(S.settings, save);
   tools = new Tools({ engine, ambient, settings: S.settings, save, onState: () => renderBadges() });
   deep = new DeepView({
@@ -1684,11 +1707,13 @@ async function boot() {
     ensureAnalysis: (t) => { if (!analyzed(t) && t.av !== -1) runAnalysis(t); },
     ensureFormat: (t) => ensureFormat(t),
     onSimilar: (t) => { deep.close(); setTimeout(() => setView({ type: 'similar', id: t.id }), 420); },
-    getLyrics: (t, force) => getLyrics(t, force),
-    saveLyrics: bridge.lyrics && bridge.lyrics.save ? async (t, text) => {
-      const r = await bridge.lyrics.save(t.path, text);
+    getLyrics: (t, force, skipLocal) => getLyrics(t, force, skipLocal),
+    saveLyrics: bridge.lyrics && bridge.lyrics.save ? async (t, text, replace) => {
+      let r;
+      try { r = await bridge.lyrics.save(t.path, text, replace); }
+      catch (e) { toast(/read-only/.test(String(e && e.message)) ? tr('ly.readOnly') : String(e && e.message || e)); throw e; }
       lyricsCache.delete(t.id);
-      toast(r && r.where === 'lrc' ? tr('ly.savedLrc') : tr('ly.savedApp'));
+      toast(r && r.backup ? tr('ly.replaced') : r && r.where === 'lrc' ? tr('ly.savedLrc') : tr('ly.savedApp'));
     } : null,
     readClipboard: () => (bridge.lyrics && bridge.lyrics.clipboard ? bridge.lyrics.clipboard() : Promise.resolve('')),
     openUrl: (u) => bridge.web.open(u),

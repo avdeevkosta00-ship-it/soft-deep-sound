@@ -1432,3 +1432,51 @@ html[style*="--accent:"] .ap-sw.theme::after { background: var(--ink-3); }
   background: rgb(var(--accent-rgb) / .16); box-shadow: inset 0 0 0 1px rgb(var(--accent-rgb) / .35); color: #fff; font-size: 13px; }
 .deep.mode-lyrics .ly-suggest { display: flex; }
 .ly-suggest span { flex: 1; min-width: 180px; }
+
+/* ===================== v1.10: your own background ===================== */
+#userBg { position: fixed; inset: 0; z-index: -3; display: none; pointer-events: none; overflow: hidden; }
+[data-userbg] #userBg { display: block; }
+#userBg img, #userBg video, #userBg canvas { width: 100%; height: 100%; object-fit: cover; display: block; animation: ubgIn 600ms var(--ease) both; }
+/* softened towards the theme's own background, so text on the glass stays readable */
+#userBg::after { content: ""; position: absolute; inset: 0; background: var(--bg-2); opacity: var(--ubg-dim, .32); transition: opacity var(--t-med); }
+[data-userbg] #bgfx { display: none; }
+/* built-in scenes are already drawn in the theme's colours: no veil */
+[data-userbg="preset"] #userBg::after { opacity: 0; }
+@keyframes ubgIn { from { opacity: 0; } }
+.ap-bg-row { display: block; }
+.ap-bg-head { margin-bottom: 10px; }
+.ap-bgs { display: flex; flex-wrap: wrap; gap: 8px; }
+.ap-bg-wrap { position: relative; }
+.ap-bg { position: relative; width: 92px; height: 58px; border-radius: 12px; overflow: hidden; display: grid; place-items: center; background: var(--groove);
+  box-shadow: inset 0 0 0 1px var(--glass-edge); transition: transform var(--t-med) var(--ease-spring), box-shadow var(--t-med) var(--ease); }
+.ap-bg:hover { transform: translateY(-1px); }
+.ap-bg:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.ap-bg.on { box-shadow: 0 0 0 2px var(--glass-3, #fff), 0 0 0 4px var(--accent); }
+.ap-bg img, .ap-bg video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.ap-bg.none { background: linear-gradient(158deg, var(--bg-1), var(--bg-2) 55%, var(--bg-3)); font-size: 11px; font-weight: 650; color: var(--ink-2); }
+.ap-bg.add { border: 1.5px dashed var(--ink-4); box-shadow: none; background: transparent; color: var(--ink-3); gap: 0; align-content: center; }
+.ap-bg.add b { font-size: 20px; line-height: 1; font-weight: 500; }
+.ap-bg.add small { font-size: 10.5px; }
+.ap-bg.add:hover { color: var(--accent); border-color: var(--accent); }
+.ap-bg-kind { position: absolute; left: 6px; bottom: 5px; font-style: normal; font-family: var(--mono); font-size: 8.5px; letter-spacing: .1em; padding: 1px 5px; border-radius: 4px; background: rgba(0,0,0,.55); color: #fff; }
+.ap-bg-del { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; opacity: 0;
+  background: var(--glass-3); color: var(--ink-2); box-shadow: 0 0 0 1px var(--glass-edge), 0 2px 6px -2px var(--drop); transition: opacity var(--t-fast); }
+.ap-bg-wrap:hover .ap-bg-del, .ap-bg-del:focus-visible { opacity: 1; }
+.ap-bg-del:hover { color: var(--accent); }
+.ap-bg-dim { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; }
+.ap-bg-dim small { color: var(--ink-3); font-size: 11.5px; }
+/* over a photo the theme's airy glass gets denser, so the text keeps winning */
+[data-userbg]:not([data-userbg="preset"])[data-tone="dark"] .glass { background: linear-gradient(180deg, rgba(14, 14, 20, .64), rgba(8, 8, 12, .56)); }
+[data-userbg]:not([data-userbg="preset"])[data-tone="dark"] .content.glass { background: rgba(8, 8, 12, .52); backdrop-filter: blur(14px) saturate(120%); -webkit-backdrop-filter: blur(14px) saturate(120%); }
+[data-userbg]:not([data-userbg="preset"])[data-tone="light"] .glass { background: rgba(255, 255, 255, .68); }
+[data-userbg]:not([data-userbg="preset"])[data-tone="light"] .content.glass { background: rgba(255, 255, 255, .56); backdrop-filter: blur(14px) saturate(130%); -webkit-backdrop-filter: blur(14px) saturate(130%); }
+/* Settings → downloads folder */
+.set-dl { min-width: 0; }
+.set-path { display: block; overflow-wrap: anywhere; }
+.set-acts { display: flex; align-items: center; gap: 8px; flex: none; }
+.ap-bg canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.ap-bg-name { position: absolute; left: 0; right: 0; bottom: 0; padding: 10px 6px 4px; font-style: normal; font-size: 10px; font-weight: 650; text-align: left;
+  color: #fff; background: linear-gradient(transparent, rgba(0, 0, 0, .5)); }
+.deep.mode-lyrics .ly-foot { display: flex; align-items: center; gap: 12px; }
+.ly-again { font-family: var(--mono); font-size: 10px; letter-spacing: .16em; text-transform: uppercase; padding: 2px 6px; }
+.deep .ly-again:hover { color: #fff; }

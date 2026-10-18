@@ -3,7 +3,7 @@
 const DICT = {
   ru: {
     'dlg.folder': 'Папка с музыкой', 'dlg.files': 'Добавить треки', 'dlg.audio': 'Аудио',
-    'dlg.cover': 'Выберите обложку', 'dlg.images': 'Изображения',
+    'dlg.cover': 'Выберите обложку', 'dlg.images': 'Изображения', 'dlg.bg': 'Выберите фон', 'dlg.dl': 'Куда сохранять загрузки', 'dlg.bgFiles': 'Картинки и видео',
     'err.format': 'Неподдерживаемый формат', 'err.big20': 'Изображение больше 20 МБ',
     'err.https': 'Разрешены только https-ссылки', 'err.addr': 'Недопустимый адрес источника',
     'err.status': 'Источник ответил {0}', 'err.notAudio': 'Это не аудиофайл ({0})', 'err.tooBig': 'Файл слишком большой',
@@ -21,7 +21,7 @@ const DICT = {
   },
   en: {
     'dlg.folder': 'Music folder', 'dlg.files': 'Add tracks', 'dlg.audio': 'Audio',
-    'dlg.cover': 'Choose artwork', 'dlg.images': 'Images',
+    'dlg.cover': 'Choose artwork', 'dlg.images': 'Images', 'dlg.bg': 'Choose a background', 'dlg.dl': 'Where to save downloads', 'dlg.bgFiles': 'Images and videos',
     'err.format': 'Unsupported format', 'err.big20': 'Image is larger than 20 MB',
     'err.https': 'Only https links are allowed', 'err.addr': 'Source address not allowed',
     'err.status': 'Source responded {0}', 'err.notAudio': 'Not an audio file ({0})', 'err.tooBig': 'File is too large',

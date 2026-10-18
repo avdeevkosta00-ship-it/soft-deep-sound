@@ -4,12 +4,15 @@
  *     artwork of the playing track). Every accent-derived variable is recomputed and kept readable:
  *     darker on light themes, brighter on dark ones;
  *   • the living background — live / calm / still / off;
- *   • glass blur — less / normal / more.
+ *   • glass blur — less / normal / more;
+ *   • your own background — any number of images, GIFs or short videos; every one added stays in the
+ *     gallery (copies live in userData/backgrounds), one is shown behind the interface, softened to taste.
  * Everything is set as inline custom properties on <html>, so the theme files stay untouched and
  * «as in the theme» simply removes the overrides.
  */
 import { h } from './ui.js';
 import { t as tr } from './i18n.js';
+import { PRESET_IDS, createPresetBg, drawPresetThumb } from './bgpresets.js';
 
 export const PRESETS = [
   ['cobalt', '#1f45e8'], ['violet', '#7c4dff'], ['fuchsia', '#e0359b'], ['coral', '#ff5a3c'],
@@ -23,7 +26,7 @@ const BLUR = { less: '8px', more: '44px' };
 const hexToRgb = (x) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(x || '')); return m ? [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16)) : null; };
 const rgbToHex = (c) => '#' + c.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('');
 
-export function createAppearance({ S, save, hslToRgb, rgbToHsl, coverColor, onChange }) {
+export function createAppearance({ S, save, bridge, toast, hslToRgb, rgbToHsl, coverColor, onChange, energy }) {
   const look = () => S.settings.look;
   let coverRgb = null;
 
@@ -64,6 +67,7 @@ export function createAppearance({ S, save, hslToRgb, rgbToHsl, coverColor, onCh
       for (const [k, v] of Object.entries(set)) st.setProperty(k, v);
     }
     root.dataset.fx = L.fx || 'live';
+    renderBackground();
     if (BLUR[L.blur]) st.setProperty('--blur', BLUR[L.blur]); else st.removeProperty('--blur');
     onChange && onChange();
   }
@@ -109,13 +113,137 @@ export function createAppearance({ S, save, hslToRgb, rgbToHsl, coverColor, onCh
     return h('div', { class: 'set-row ap-row' }, h('div', {}, h('b', {}, tr('ap.accent')), h('small', {}, tr('ap.accentD'))), row);
   }
 
+/** settings changed from elsewhere (e.g. choosing a background turns the living one off): repaint the switches */
+  function syncSegs() {
+    document.querySelectorAll('.ap .seg[data-key]').forEach((sg) => sg.querySelectorAll('button[data-v]').forEach((b) => {
+      const on = look()[sg.dataset.key] === b.dataset.v;
+      b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on));
+    }));
+  }
+  /**
+   * A background of your own (or a built-in one) replaces the living background, so that one is switched
+   * off — and comes back as it was when «as in the theme» is chosen again.
+   */
+  function chooseBg(id) {
+    const L = look(), patch = { bgActive: id };
+    if (id) {
+      if (!L.bgActive && L.fx !== 'off') patch.fxBefore = L.fx;
+      patch.fx = 'off';
+    } else if (L.bgActive) {
+      patch.fx = L.fxBefore || 'live';
+      patch.fxBefore = null;
+    }
+    setLook(patch);
+    syncSegs();
+  }
+
   function seg(key, options, label, desc) {
-    const s = h('div', { class: 'seg', role: 'radiogroup', 'aria-label': label }, ...options.map(([v, text]) => {
-      const b = h('button', { class: look()[key] === v ? 'on' : '', role: 'radio', 'aria-checked': String(look()[key] === v) }, text);
+    const s = h('div', { class: 'seg', role: 'radiogroup', 'aria-label': label, dataset: { key } }, ...options.map(([v, text]) => {
+      const b = h('button', { class: look()[key] === v ? 'on' : '', role: 'radio', 'aria-checked': String(look()[key] === v), dataset: { v } }, text);
       b.onclick = () => { setLook({ [key]: v }); s.querySelectorAll('button').forEach((x) => { x.classList.toggle('on', x === b); x.setAttribute('aria-checked', String(x === b)); }); };
       return b;
     }));
     return h('div', { class: 'set-row' }, h('div', {}, h('b', {}, label), h('small', {}, desc)), s);
+  }
+
+  /* ------------------------------ your own background ------------------------------ */
+  const DIM = { none: 0, soft: .4, strong: .66 };
+  let layer = null, media = null, mediaPath = null, preset = null;
+  const presetOf = (id) => (/^preset:/.test(id || '') && PRESET_IDS.includes(id.slice(7)) ? id.slice(7) : null);
+  function renderBackground() {
+    const root = document.documentElement, L = look();
+    const pid = presetOf(L.bgActive);
+    const item = pid ? { kind: 'preset', path: L.bgActive } : (L.bgList || []).find((b) => b.path === L.bgActive);
+    if (!item || item.path !== mediaPath) {
+      if (media) media.remove();
+      if (preset && (!item || item.kind !== 'preset')) preset.stop();
+      if (!item || item.kind !== 'preset') { media = null; mediaPath = null; }
+    }
+    if (!item) { delete root.dataset.userbg; return; }
+    if (!layer) { layer = h('div', { id: 'userBg', 'aria-hidden': 'true' }); document.body.prepend(layer); }
+    root.dataset.userbg = item.kind;
+    root.style.setProperty('--ubg-dim', String(DIM[L.bgDim] ?? DIM.soft));
+    if (item.kind === 'preset') {
+      // built-in scenes take their colours from the theme: repaint them after every theme / accent change
+      preset = preset || createPresetBg({ energy });
+      preset.recolor();
+      if (mediaPath !== item.path) { layer.append(preset.canvas); media = preset.canvas; mediaPath = item.path; preset.start(pid); }
+      return;
+    }
+    if (mediaPath === item.path) return;
+    const src = bridge.mediaUrl(item.path);
+    media = item.kind === 'video' ? h('video', { src, loop: true, playsinline: true }) : h('img', { src, alt: '' });
+    if (item.kind === 'video') { media.muted = true; media.play().catch(() => {}); }
+    // the copy is gone (cleaned up by hand): fall back to the theme instead of a blank screen
+    media.onerror = () => { if (look().bgActive === item.path) { look().bgActive = null; save(); renderBackground(); } };
+    layer.append(media);
+    mediaPath = item.path;
+  }
+  // a video background rests while nothing of it can be seen
+  setInterval(() => {
+    if (!media || media.tagName !== 'VIDEO') return;
+    const b = document.body.classList, hidden = document.hidden || document.documentElement.classList.contains('win-hidden') || b.contains('deep-open') || b.contains('visual-open');
+    if (hidden && !media.paused) media.pause(); else if (!hidden && media.paused) media.play().catch(() => {});
+  }, 1000);
+
+  /** gallery: «theme» + every background ever added + «add»; the chosen one is ringed */
+  function bgRow() {
+    const wrap = h('div', { class: 'set-row ap-bg-row' });
+    const paint = () => {
+      const L = look();
+      wrap.innerHTML = '';
+      const tiles = h('div', { class: 'ap-bgs', role: 'radiogroup', 'aria-label': tr('ap.bg') });
+      const none = h('button', { class: 'ap-bg none' + (!L.bgActive ? ' on' : ''), role: 'radio', 'aria-checked': String(!L.bgActive), title: tr('ap.bg.none') }, h('span', {}, tr('ap.bg.none')));
+      none.onclick = () => { chooseBg(null); paint(); };
+      tiles.append(none);
+      for (const id of PRESET_IDS) {
+        const cv = h('canvas', { width: 184, height: 116 });
+        drawPresetThumb(cv, id);
+        const key = 'preset:' + id, on = L.bgActive === key;
+        const t = h('button', { class: 'ap-bg preset' + (on ? ' on' : ''), role: 'radio', 'aria-checked': String(on), title: tr('ap.bg.p.' + id) }, cv, h('i', { class: 'ap-bg-name' }, tr('ap.bg.p.' + id)));
+        t.onclick = () => { chooseBg(key); paint(); };
+        tiles.append(t);
+      }
+      for (const b of L.bgList || []) {
+        const src = bridge.mediaUrl(b.path);
+        const thumb = b.kind === 'video' ? h('video', { src, preload: 'metadata' }) : h('img', { src, alt: '', loading: 'lazy' });
+        if (thumb.tagName === 'VIDEO') thumb.muted = true;
+        const on = L.bgActive === b.path;
+        const t = h('button', { class: 'ap-bg' + (on ? ' on' : ''), role: 'radio', 'aria-checked': String(on), title: b.name || '' }, thumb,
+          b.kind === 'video' ? h('i', { class: 'ap-bg-kind' }, tr('ap.bg.video')) : null);
+        t.onclick = () => { chooseBg(b.path); paint(); };
+        const del = h('button', { class: 'ap-bg-del', title: tr('ap.bg.remove'), 'aria-label': tr('ap.bg.remove'), html: '<svg viewBox="0 0 12 12" width="10" height="10"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7" stroke="currentColor" stroke-width="1.6"/></svg>' });
+        del.onclick = async (e) => {
+          e.stopPropagation();
+          await bridge.backgrounds.remove(b.path).catch(() => {});
+          L.bgList = L.bgList.filter((x) => x !== b);
+          if (L.bgActive === b.path) chooseBg(null);
+          save(); apply(); paint();
+        };
+        tiles.append(h('div', { class: 'ap-bg-wrap' }, t, del));
+      }
+      const add = h('button', { class: 'ap-bg add', title: tr('ap.bg.add') }, h('b', {}, '+'), h('small', {}, tr('ap.bg.add')));
+      add.onclick = async () => {
+        if (!bridge.backgrounds) return;
+        const r = await bridge.backgrounds.add().catch(() => null);
+        if (!r) return;
+        if (r.added.length) { look().bgList = [...(look().bgList || []), ...r.added]; chooseBg(r.added[r.added.length - 1].path); paint(); }
+        if (r.skipped) toast(tr('ap.bg.skipped', { n: r.skipped }));
+      };
+      tiles.append(add);
+      wrap.append(h('div', { class: 'ap-bg-head' }, h('b', {}, tr('ap.bg')), h('small', {}, tr('ap.bgD'))), tiles);
+      if (L.bgActive && !presetOf(L.bgActive)) {
+        const dim = h('div', { class: 'seg', role: 'radiogroup', 'aria-label': tr('ap.bg.dim') }, ...[['none', tr('ap.bg.dim.none')], ['soft', tr('ap.bg.dim.soft')], ['strong', tr('ap.bg.dim.strong')]].map(([v, text]) => {
+          const cur = L.bgDim || 'soft';
+          const b = h('button', { class: cur === v ? 'on' : '', role: 'radio', 'aria-checked': String(cur === v) }, text);
+          b.onclick = () => { setLook({ bgDim: v }); paint(); };
+          return b;
+        }));
+        wrap.append(h('div', { class: 'ap-bg-dim' }, h('small', {}, tr('ap.bg.dim')), dim));
+      }
+    };
+    paint();
+    return wrap;
   }
 
   /** the «Оформление» block for Settings */
@@ -123,6 +251,7 @@ export function createAppearance({ S, save, hslToRgb, rgbToHsl, coverColor, onCh
     return h('div', { class: 'ap' },
       accentRow(getTrack),
       seg('fx', [['live', tr('ap.fx.live')], ['calm', tr('ap.fx.calm')], ['still', tr('ap.fx.still')], ['off', tr('ap.fx.off')]], tr('ap.fx'), tr('ap.fxD')),
+      bgRow(),
       seg('blur', [['less', tr('ap.blur.less')], ['normal', tr('ap.blur.normal')], ['more', tr('ap.blur.more')]], tr('ap.blur'), tr('ap.blurD')));
   }
 

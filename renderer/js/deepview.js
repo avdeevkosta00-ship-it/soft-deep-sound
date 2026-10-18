@@ -177,7 +177,8 @@ export class DeepView {
   }
 
   /* ------------------------------ lyrics ------------------------------ */
-  async loadLyrics(force) {
+  /** online: look past the user's own text and show what LRCLIB has as a preview they can take or leave */
+  async loadLyrics(force, { online = false } = {}) {
     const t = this.api.getTrack(), box = this.el && this.el.querySelector('.dv-lyrics');
     if (!t || !box || (!force && this.ly && this.ly.id === t.id)) return;
     // each load owns its own state: an answer that arrives after Deep View was closed and reopened
@@ -187,17 +188,20 @@ export class DeepView {
     box.innerHTML = ''; foot.textContent = '';
     box.append(h('div', { class: 'ly-state' }, h('span', { class: 'spin' }), tr('ly.loading')));
     let res;
-    try { res = await this.api.getLyrics(t, force); } catch (e) { res = { error: true }; }
+    try { res = await this.api.getLyrics(t, force, online); } catch (e) { res = { error: true }; }
     if (this.ly !== ly || !box.isConnected || this.api.getTrack() !== t) return;
     box.innerHTML = '';
     const note = (text, ...acts) => box.append(h('div', { class: 'ly-state' }, h('span', {}, text), h('div', { class: 'ly-acts' }, ...acts, ...this.ownActions(t))));
-    if (!res || res.error) return note(tr('ly.error'), h('button', { class: 'chip-btn', onClick: () => this.loadLyrics(true) }, tr('ly.retry')));
+    const back = () => h('button', { class: 'chip-btn', onClick: () => this.loadLyrics(true) }, tr('ly.keep'));
+    if (!res || res.error) return note(tr('ly.error'), h('button', { class: 'chip-btn', onClick: () => this.loadLyrics(true, { online }) }, tr('ly.retry')), online ? back() : null);
     this.suggestName(t, res.match);
     const data = res.text ? parseLyrics(res.text) : null;
     if (data && data.instrumental) return note(tr('ly.instrumental'));
     if (!data || !data.lines.length) {
+      if (online) return note(tr('ly.onlineNone'), back());
       return note(res.offline ? tr('ly.offline') : tr('ly.none'),
-        res.offline ? h('button', { class: 'chip-btn', onClick: () => { this.close(); this.api.openSettings(); } }, tr('ly.settings')) : null);
+        res.offline ? h('button', { class: 'chip-btn', onClick: () => { this.close(); this.api.openSettings(); } }, tr('ly.settings'))
+          : h('button', { class: 'chip-btn', onClick: () => this.loadLyrics(true) }, tr('ly.again')));
     }
     ly.data = data;
     const list = h('div', { class: 'ly-lines' + (data.synced ? ' synced' : '') });
@@ -208,7 +212,12 @@ export class DeepView {
     });
     const src = { lrc: tr('ly.srcLrc'), tags: tr('ly.srcTags'), own: tr('ly.srcOwn'), lrclib: 'LRCLIB' }[res.source] || '';
     box.append(list);
-    foot.textContent = (data.synced ? tr('ly.synced') : tr('ly.plain')) + (src ? ' · ' + src : '');
+    foot.append(h('span', {}, (data.synced ? tr('ly.synced') : tr('ly.plain')) + (src ? ' · ' + src : '')));
+    // found online but maybe not the right one, or only plain text: one more fresh lookup
+    if (res.source === 'lrclib' && !online) foot.append(h('button', { class: 'text-btn ly-again', onClick: () => this.loadLyrics(true) }, tr('ly.again')));
+    // the user's own text (a .lrc, the tags, one they pasted): the internet can still be asked, without touching it
+    if (['lrc', 'own', 'tags'].includes(res.source)) foot.append(h('button', { class: 'text-btn ly-again', onClick: () => this.loadLyrics(true, { online: true }) }, tr('ly.online')));
+    if (online) this.previewBar(t, res.text);
     this.followLyrics(this.api.engine.time, true);
   }
 
@@ -283,6 +292,17 @@ export class DeepView {
       h('span', {}, tr('ly.guess', { name: `${m.artist} — ${m.title}` })),
       h('button', { class: 'chip-btn on', onClick: () => { this.api.renameTrack(t, m); bar.remove(); } }, tr('ly.rename')),
       h('button', { class: 'text-btn', onClick: () => bar.remove() }, tr('ly.notIt')));
+    foot.before(bar);
+  }
+
+  /** the online result over the user's own text: replace theirs (the old file is kept as .lrc.bak) or keep it */
+  previewBar(t, text) {
+    const foot = this.el && this.el.querySelector('.ly-foot');
+    if (!foot) return;
+    const bar = h('div', { class: 'ly-suggest' },
+      h('span', {}, tr('ly.previewT')),
+      h('button', { class: 'chip-btn on', onClick: async () => { try { await this.api.saveLyrics(t, text, true); this.loadLyrics(true); } catch {} } }, tr('ly.replace')),
+      h('button', { class: 'text-btn', onClick: () => this.loadLyrics(true) }, tr('ly.keep')));
     foot.before(bar);
   }
 

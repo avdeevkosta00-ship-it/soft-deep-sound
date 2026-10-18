@@ -17,3 +17,7 @@ desktop.ini
 # ключи и личные настройки — никогда не публиковать
 .env
 .env.*
+
+# local notes for the coding assistant — stay on this computer, not in the repository
+CLAUDE.md
+.claude/

@@ -91,6 +91,7 @@ function mock() {
     },
     lyrics: { get: async () => { await new Promise((r) => setTimeout(r, 400)); return { source: 'lrc', text: Array.from({ length: 14 }, (_, i) => `[00:${String(i * 2.5 | 0).padStart(2, '0')}.${i % 2 ? '50' : '00'}]Demo line ${i + 1}${i % 4 === 3 ? '' : ' — words of the song'}`).join('\n') }; } },
     // no network lookups in the browser preview: every second track "is found"
+    backgrounds: { add: async () => ({ added: [], skipped: 0 }), remove: async () => true },
     meta: { repair: async (t) => { await new Promise((r) => setTimeout(r, 250)); return t.title.length % 2 ? null : { mbid: 'demo', confidence: t.title.length % 3 ? .93 : .7, title: t.title, artist: t.artist || 'Demo Artist', album: t.album || 'Demo Album', year: 2019, genre: 'Ambient', cover: null }; } },
     web: {
       search: async (q) => {

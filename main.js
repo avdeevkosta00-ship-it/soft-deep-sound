@@ -27,7 +27,7 @@ const MIME = {
   '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif',
   '.woff2': 'font/woff2', '.json': 'application/json',
   '.mp3': 'audio/mpeg', '.flac': 'audio/flac', '.wav': 'audio/wav', '.ogg': 'audio/ogg', '.oga': 'audio/ogg',
-  '.opus': 'audio/ogg', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.webm': 'audio/webm'
+  '.opus': 'audio/ogg', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.webm': 'audio/webm', '.mp4': 'video/mp4'
 };
 
 protocol.registerSchemesAsPrivileged([{
@@ -38,16 +38,21 @@ protocol.registerSchemesAsPrivileged([{
 const userDir = () => app.getPath('userData');
 const storeFile = () => path.join(userDir(), 'library.json');
 const coversDir = () => path.join(userDir(), 'covers');
-const downloadsDir = () => path.join(app.getPath('music'), 'Soft&Deep Sound');
+// the user's own backgrounds (Settings → Оформление → Свой фон): copies, so the originals can move or vanish
+const backgroundsDir = () => path.join(userDir(), 'backgrounds');
+const BG_EXT = { '.jpg': 'image', '.jpeg': 'image', '.png': 'image', '.webp': 'image', '.gif': 'image', '.mp4': 'video', '.webm': 'video' };
+const defaultDownloadsDir = () => path.join(app.getPath('music'), 'Soft&Deep Sound');
+// Settings → «Папка загрузок»: the user's own folder, while it still exists; otherwise the default one
+const downloadsDir = () => (prefs.downloadsDir && fs.existsSync(prefs.downloadsDir) ? prefs.downloadsDir : defaultDownloadsDir());
 
 let win;
 
 /* ---------------------------------- protocol ---------------------------------- */
-async function serveFile(filePath, request) {
+async function serveFile(filePath, request, forceType) {
   let stat;
   try { stat = await fsp.stat(filePath); } catch { return new Response('Not found', { status: 404 }); }
   if (!stat.isFile()) return new Response('Not found', { status: 404 });
-  const type = MIME[path.extname(filePath).toLowerCase()] || 'application/octet-stream';
+  const type = forceType || MIME[path.extname(filePath).toLowerCase()] || 'application/octet-stream';
   const range = request.headers.get('range');
   // ACAO lets the page (sds://app) route media from sds://media through Web Audio without being muted as cross-origin.
   const base = { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Cache-Control': 'no-cache', 'Access-Control-Allow-Origin': '*' };
@@ -91,6 +96,9 @@ function registerProtocol() {
       if (!path.isAbsolute(p)) return new Response('Forbidden', { status: 403 });
       const ext = path.extname(p).toLowerCase();
       const isCover = isInside(coversDir(), path.normalize(p));
+      // the user's backgrounds live in their own folder; a .webm there is a video, not audio
+      const isBg = isInside(backgroundsDir(), path.normalize(p)) && !!BG_EXT[ext];
+      if (isBg) return serveFile(p, request, ext === '.webm' ? 'video/webm' : undefined);
       if (!AUDIO_EXT.has(ext) && !isCover) return new Response('Forbidden', { status: 403 });
       return serveFile(p, request);
     }
@@ -405,15 +413,39 @@ function registerIpc() {
     await fsp.copyFile(src, dest);
     return dest;
   });
+  // own backgrounds: picked files are copied into userData/backgrounds; images up to 30 MB, videos up to 200 MB
+  ipcMain.handle('bg:add', async () => {
+    const res = await dialog.showOpenDialog(win, { title: tm('dlg.bg'), properties: ['openFile', 'multiSelections'],
+      filters: [{ name: tm('dlg.bgFiles'), extensions: Object.keys(BG_EXT).map((e) => e.slice(1)) }] });
+    if (res.canceled) return { added: [], skipped: 0 };
+    await fsp.mkdir(backgroundsDir(), { recursive: true });
+    const added = []; let skipped = 0;
+    for (const src of res.filePaths.slice(0, 20)) {
+      const ext = path.extname(src).toLowerCase(), kind = BG_EXT[ext];
+      const st = await fsp.stat(src).catch(() => null);
+      if (!kind || !st || st.size > (kind === 'video' ? 200 : 30) * 1024 * 1024) { skipped++; continue; }
+      const dest = path.join(backgroundsDir(), `bg-${Date.now()}-${crypto.randomBytes(3).toString('hex')}${ext}`);
+      await fsp.copyFile(src, dest);
+      added.push({ path: dest, kind, name: path.basename(src, ext) });
+    }
+    return { added, skipped };
+  });
+  // only our own copies can be removed — never anything else on disk
+  ipcMain.handle('bg:remove', async (_e, p) => {
+    const file = path.normalize(String(p || ''));
+    if (!isInside(backgroundsDir(), file)) return false;
+    await fsp.rm(file, { force: true });
+    return true;
+  });
   ipcMain.handle('library:scan', () => findMusicFolders());
   // lyrics: .lrc next to the file, then the tags, then (if allowed) LRCLIB
   ipcMain.handle('lyrics:get', (_e, t, opts) => {
     if (!t || typeof t !== 'object') return null;
     const str = (v) => String(v || '').slice(0, 1000);
     return lyrics.get({ path: str(t.path), title: str(t.title), artist: str(t.artist), album: str(t.album), duration: Number(t.duration) || 0 },
-      { online: !!(opts && opts.online) });
+      { online: !!(opts && opts.online), force: !!(opts && opts.force), skipLocal: !!(opts && opts.skipLocal) });
   });
-  ipcMain.handle('lyrics:save', (_e, p, text) => lyrics.save(String(p || ''), String(text || '')));
+  ipcMain.handle('lyrics:save', (_e, p, text, replace) => lyrics.save(String(p || ''), String(text || ''), !!replace));
   // asked only while the lyrics tab waits for text the user went to copy; long or empty clips are not passed on
   ipcMain.handle('lyrics:clipboard', () => { const s = clipboard.readText() || ''; return s.length > 20000 ? '' : s; });
   // tags and artwork from MusicBrainz / Cover Art Archive for one track (only its names are sent)
@@ -504,7 +536,18 @@ function registerIpc() {
   ipcMain.handle('spotify:playlists', () => spotify.playlists());
   ipcMain.handle('spotify:tracks', (_e, id) => spotify.playlistTracks(id));
   ipcMain.handle('app:lang', (_e, l) => { setLang(l); buildTrayMenu(); updateThumbar(); });
-  ipcMain.handle('app:paths', () => ({ downloads: downloadsDir(), userData: userDir() }));
+  ipcMain.handle('app:paths', () => ({ downloads: downloadsDir(), userData: userDir(), downloadsCustom: downloadsDir() !== defaultDownloadsDir() }));
+  ipcMain.handle('downloads:pick', async () => {
+    const res = await dialog.showOpenDialog(win, { title: tm('dlg.dl'), defaultPath: downloadsDir(), properties: ['openDirectory', 'createDirectory'] });
+    if (res.canceled || !res.filePaths[0]) return null;
+    const dir = res.filePaths[0];
+    // the folder must take files: a CD drive or a protected system folder would fail every download later
+    try { await fsp.access(dir, fs.constants.W_OK); } catch { throw new Error('not-writable'); }
+    prefs.downloadsDir = dir; savePrefs();
+    return dir;
+  });
+  ipcMain.handle('downloads:reset', () => { delete prefs.downloadsDir; savePrefs(); return defaultDownloadsDir(); });
+  ipcMain.handle('downloads:open', async () => { await fsp.mkdir(downloadsDir(), { recursive: true }).catch(() => {}); return shell.openPath(downloadsDir()); });
 
   ipcMain.on('win:min', () => win.minimize());
   ipcMain.on('win:max', () => (win.isMaximized() ? win.unmaximize() : win.maximize()));
@@ -548,7 +591,7 @@ else {
     loadPrefs();
     spotify.init({ userDir, openExternal: (u) => shell.openExternal(u), safeStorage });
     musicbrainz.init({ version: app.getVersion(), coversDir });
-    lyrics.init({ version: app.getVersion(), userDir, audioExt: AUDIO_EXT, names, identify: musicbrainz.identify });
+    lyrics.init({ version: app.getVersion(), userDir, audioExt: AUDIO_EXT, names, identify: musicbrainz.identify, sim: musicbrainz.sim, norm: musicbrainz.norm });
     registerIpc();
     createWindow();
     createTray();

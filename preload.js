@@ -32,10 +32,11 @@ contextBridge.exposeInMainWorld('sds', {
     write: (p, data) => ipcRenderer.invoke('export:write', { path: p, data })
   },
   covers: { pick: () => ipcRenderer.invoke('cover:pick') },
+  backgrounds: { add: () => ipcRenderer.invoke('bg:add'), remove: (p) => ipcRenderer.invoke('bg:remove', p) },
   meta: { repair: (t) => ipcRenderer.invoke('meta:repair', t) },
   lyrics: {
     get: (t, opts) => ipcRenderer.invoke('lyrics:get', t, opts),
-    save: (p, text) => ipcRenderer.invoke('lyrics:save', p, text),
+    save: (p, text, replace) => ipcRenderer.invoke('lyrics:save', p, text, !!replace),
     clipboard: () => ipcRenderer.invoke('lyrics:clipboard')
   },
   importer: {
@@ -50,7 +51,8 @@ contextBridge.exposeInMainWorld('sds', {
     }
   },
   app: {
-    paths: () => ipcRenderer.invoke('app:paths'), setLang: (l) => ipcRenderer.invoke('app:lang', l),
+    paths: () => ipcRenderer.invoke('app:paths'),
+    pickDownloads: () => ipcRenderer.invoke('downloads:pick'), resetDownloads: () => ipcRenderer.invoke('downloads:reset'), openDownloads: () => ipcRenderer.invoke('downloads:open'), setLang: (l) => ipcRenderer.invoke('app:lang', l),
     prefs: () => ipcRenderer.invoke('app:prefs'), pendingFiles: () => ipcRenderer.invoke('app:pendingFiles'),
     onVisible: (cb) => ipcRenderer.on('win:visible', (_e, v) => cb(v)), setPref: (key, value) => ipcRenderer.invoke('app:setPref', { key, value })
   },
