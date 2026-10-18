@@ -12,7 +12,16 @@ export class BackgroundFX {
     this.readTheme();
     addEventListener('resize', () => this.resize());
     this.resize();
-    const loop = (now) => { requestAnimationFrame(loop); if (document.documentElement.classList.contains('win-hidden') || document.hidden || document.body.classList.contains('deep-open') || document.body.classList.contains('visual-open')) { this.last = now; return; } if (now - this.last < 32) return; this.frame(Math.min(.1, (now - this.last) / 1000)); this.last = now; };
+    // Settings → Оформление → «Живой фон»: live, calm (slower, barely reacts to the beat), still (one frame), off
+    const loop = (now) => {
+      requestAnimationFrame(loop);
+      const fx = document.documentElement.dataset.fx || 'live';
+      if (fx === 'off' || (fx === 'still' && this.drawn) || document.documentElement.classList.contains('win-hidden') || document.hidden || document.body.classList.contains('deep-open') || document.body.classList.contains('visual-open')) { this.last = now; return; }
+      if (now - this.last < 32) return;
+      this.pace = fx === 'calm' ? .35 : fx === 'still' ? 0 : 1;
+      this.frame(Math.min(.1, (now - this.last) / 1000) * (this.pace || 0));
+      this.drawn = true; this.last = now;
+    };
     requestAnimationFrame(loop);
   }
   resize() {
@@ -20,7 +29,7 @@ export class BackgroundFX {
     this.W = innerWidth; this.H = innerHeight;
     this.c.width = Math.ceil(this.W * this.k); this.c.height = Math.ceil(this.H * this.k);
     this.g.setTransform(this.k, 0, 0, this.k, 0, 0);
-    this.grain = null; this.cloudLayer = null; this.bub = null;
+    this.grain = null; this.cloudLayer = null; this.bub = null; this.drawn = false;
   }
   setPulse(rgb) { this.pulseTarget = rgb; }
   readTheme() {
@@ -29,13 +38,13 @@ export class BackgroundFX {
     this.theme = document.documentElement.dataset.theme;
     if (prev && prev !== this.theme) this.resize();
     this.col = { line: v('--line'), faint: v('--line-faint'), orb: v('--orb'), acc: v('--accent'), acc2: v('--accent-2'), rgb: v('--accent-rgb').split(/\s+/).join(',') };
-    this.grain = null;
+    this.grain = null; this.drawn = false; // a still background repaints once in the new colours
   }
   frame(dt) {
     const playing = this.isPlaying();
     this.speed += ((playing ? 1 : .12) - this.speed) * .03;
     this.t += dt * this.speed;
-    this.e += ((playing ? this.energy() : 0) - this.e) * .08;
+    this.e += ((playing ? this.energy() * (this.pace === 1 ? 1 : .3) : 0) - this.e) * .08;
     // glide the glow colour towards the current cover colour
     const tgt = this.pulseTarget || this.col.rgb.split(',').map(Number);
     this.pulse = this.pulse ? this.pulse.map((v, i) => v + (tgt[i] - v) * .04) : [...tgt];

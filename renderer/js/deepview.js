@@ -9,19 +9,38 @@ import { t as tr, tn } from './i18n.js';
 import { ICON } from './icons.js';
 import { WaveSeek } from './visualizer.js';
 import { findSimilar, analyzed, quality } from './smart.js';
+import { parseLyrics, lineAt } from './lyrics.js';
 
 const ENTER = 'cubic-bezier(.16,.84,.24,1)', EXIT = 'cubic-bezier(.5,0,.75,.3)';
 const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 export class DeepView {
   constructor(api) {
-    this.api = api; // { engine, getTrack, tracks, art, artistOf, playIds, playNext, next, prev, toggle, ensureAnalysis, ensureFormat, onSimilar }
+    this.api = api; // { engine, getTrack, tracks, art, artistOf, playIds, playNext, next, prev, toggle, ensureAnalysis, ensureFormat, onSimilar, getLyrics, openSettings }
     this.el = null; this.open = false; this.busy = false;
+    this.mode = 'info'; // 'info' — analysis and similar tracks, 'lyrics' — the words
+    this.ly = null;     // { id, data, idx } for the lyrics on screen
   }
   get isOpen() { return this.open; }
   toggle() { this.open ? this.close() : this.show(); }
 
-  show() {
+  /** L: open straight on the lyrics, or switch to them / back when already open */
+  toggleLyrics() {
+    if (!this.open) return this.show('lyrics');
+    this.setMode(this.mode === 'lyrics' ? 'info' : 'lyrics');
+  }
+
+  setMode(mode) {
+    this.mode = mode;
+    if (!this.el) return;
+    this.el.classList.toggle('mode-lyrics', mode === 'lyrics');
+    this.el.querySelectorAll('.dv-modes button').forEach((b) => { const on = b.dataset.mode === mode; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); });
+    if (mode === 'lyrics') this.loadLyrics();
+  }
+
+  show(mode) {
+    if (mode) this.mode = mode;
+    if (this.open && mode) return this.setMode(mode);
     const t = this.api.getTrack();
     if (!t || this.open || this.busy) return;
     this.open = true; this.busy = true;
@@ -55,6 +74,7 @@ export class DeepView {
     // interrupt a still-running opening animation so Esc always works
     if (this.busy) el.getAnimations({ subtree: true }).forEach((a) => { if (a instanceof CSSAnimation) return; try { a.finish(); } catch {} });
     this.busy = true; this.closing = true;
+    if (this.onFocus) { removeEventListener('focus', this.onFocus); this.onFocus = null; this.awaitPaste = null; }
     const finish = () => { if (this.el !== el) return; el.remove(); this.el = null; this.open = false; this.busy = false; this.closing = false; document.body.classList.remove('deep-open'); cancelAnimationFrame(this.raf); $('#coverFrame').style.visibility = ''; };
     if (reduced()) return finish();
     const cover = el.querySelector('.dv-cover'), dst = $('#coverFrame').getBoundingClientRect(), src = cover.getBoundingClientRect();
@@ -81,7 +101,13 @@ export class DeepView {
       this.bindLoop();
       this.api.ensureFormat(t).then(() => this.refreshMeta());
       this.api.ensureAnalysis(t);
-    } else { this.refreshMeta(); this.refreshAnalysis(); }
+    } else {
+      // same track, maybe renamed (e.g. from a lyrics suggestion)
+      this.el.querySelector('.dv-title').textContent = t.title;
+      const ar = this.el.querySelector('.dv-artist');
+      ar.replaceChildren(this.api.artistOf(t), ...(t.album ? [h('span', {}, ' — ' + t.album)] : []), ...(t.year ? [h('span', { class: 'dv-year' }, ' · ' + t.year)] : []));
+      this.refreshMeta(); this.refreshAnalysis();
+    }
   }
 
   build(t) {
@@ -94,12 +120,14 @@ export class DeepView {
     const prev = h('button', { class: 'tbtn', title: tr('tr.prev'), 'aria-label': tr('tr.prev'), html: '<svg viewBox="0 0 24 24"><path class="fill" d="M18 6v12l-8.5-6zM6 6h2.2v12H6z"/></svg>' });
     const next = h('button', { class: 'tbtn', title: tr('tr.next'), 'aria-label': tr('tr.next'), html: '<svg viewBox="0 0 24 24"><path class="fill" d="M6 6v12l8.5-6zM15.8 6H18v12h-2.2z"/></svg>' });
     prev.onclick = () => a.prev(); next.onclick = () => a.next();
+    const modes = h('div', { class: 'seg dv-modes', role: 'group', 'aria-label': tr('ly.modes') },
+      ...[['info', tr('ly.info')], ['lyrics', tr('ly.title')]].map(([k, label]) => h('button', { dataset: { mode: k }, class: this.mode === k ? 'on' : '', 'aria-pressed': String(this.mode === k), onClick: () => this.setMode(k) }, label)));
     const seek = h('div', { class: 'dv-seek' }, h('canvas'));
     const cur = h('span', { class: 'time dv-cur' }, '0:00'), dur = h('span', { class: 'time' }, fmt(t.duration));
 
     const el = h('div', { class: 'deep', role: 'dialog', 'aria-modal': 'true', 'aria-label': tr('dv.kicker'), dataset: { id: t.id } },
       h('div', { class: 'dv-bg' }, h('div', { class: 'dv-bg-art', style: { background: a.art(t) } }), h('div', { class: 'dv-bg-tint' })),
-      h('div', { class: 'dv-top dv-in' }, h('div', { class: 'v-kicker' }, tr('dv.kicker')), h('span', { class: 'dv-hint' }, tr('dv.hint')), close),
+      h('div', { class: 'dv-top dv-in' }, h('div', { class: 'v-kicker' }, tr('dv.kicker')), modes, h('span', { class: 'dv-hint' }, tr('dv.hint')), close),
       h('div', { class: 'dv-main' },
         h('div', { class: 'dv-left' },
           h('div', { class: 'dv-cover', style: { background: a.art(t) } }, h('div', { class: 'cover-gloss' })),
@@ -115,7 +143,11 @@ export class DeepView {
           h('section', { class: 'dv-sec dv-in' }, h('div', { class: 'sec-title' }, tr('dv.character')), h('div', { class: 'dv-bars' })),
           h('section', { class: 'dv-sec dv-in' },
             h('div', { class: 'sec-title' }, h('span', {}, tr('dv.similar')), h('button', { class: 'text-btn dv-simall', onClick: () => a.onSimilar(this.api.getTrack()) }, tr('dv.simAll'))),
-            h('div', { class: 'dv-sim' })))));
+            h('div', { class: 'dv-sim' })),
+          // dv-in: the lyrics fade in and out with the rest, so they never hang over the interface while closing
+          h('section', { class: 'dv-lyrics dv-in', 'aria-live': 'off' }),
+          h('div', { class: 'ly-foot dv-in' }))));
+    if (this.mode === 'lyrics') el.classList.add('mode-lyrics');
     el.addEventListener('dblclick', (e) => { if (e.target.closest('.dv-cover, .dv-bg, .dv-top')) this.close(); });
     this.wave = new WaveSeek(seek.querySelector('canvas'), { onDark: true });
     this.wave.set(t.peaks || null);
@@ -125,6 +157,8 @@ export class DeepView {
     });
     this.ui = { cur, dur };
     this.refreshMeta(el); this.refreshAnalysis(el);
+    this.ly = null;
+    if (this.mode === 'lyrics') queueMicrotask(() => this.loadLyrics());
     return el;
   }
 
@@ -132,12 +166,142 @@ export class DeepView {
     cancelAnimationFrame(this.raf);
     const tick = () => {
       if (!this.open || !this.el) return;
+      // schedule first: one bad frame must never stop the clock, the waveform and the lyrics for good
+      this.raf = requestAnimationFrame(tick);
       const e = this.api.engine, d = e.duration;
       this.wave.progress(d ? e.time / d : 0);
       this.ui.cur.textContent = fmt(e.time);
-      this.raf = requestAnimationFrame(tick);
+      if (this.mode === 'lyrics') { try { this.followLyrics(e.time); } catch (err) { console.warn('lyrics:', err); } }
     };
     this.raf = requestAnimationFrame(tick);
+  }
+
+  /* ------------------------------ lyrics ------------------------------ */
+  async loadLyrics(force) {
+    const t = this.api.getTrack(), box = this.el && this.el.querySelector('.dv-lyrics');
+    if (!t || !box || (!force && this.ly && this.ly.id === t.id)) return;
+    // each load owns its own state: an answer that arrives after Deep View was closed and reopened
+    // (LRCLIB can take seconds) must not touch the new window's lyrics
+    const ly = this.ly = { id: t.id, data: null, idx: -2 };
+    const foot = this.el.querySelector('.ly-foot');
+    box.innerHTML = ''; foot.textContent = '';
+    box.append(h('div', { class: 'ly-state' }, h('span', { class: 'spin' }), tr('ly.loading')));
+    let res;
+    try { res = await this.api.getLyrics(t, force); } catch (e) { res = { error: true }; }
+    if (this.ly !== ly || !box.isConnected || this.api.getTrack() !== t) return;
+    box.innerHTML = '';
+    const note = (text, ...acts) => box.append(h('div', { class: 'ly-state' }, h('span', {}, text), h('div', { class: 'ly-acts' }, ...acts, ...this.ownActions(t))));
+    if (!res || res.error) return note(tr('ly.error'), h('button', { class: 'chip-btn', onClick: () => this.loadLyrics(true) }, tr('ly.retry')));
+    this.suggestName(t, res.match);
+    const data = res.text ? parseLyrics(res.text) : null;
+    if (data && data.instrumental) return note(tr('ly.instrumental'));
+    if (!data || !data.lines.length) {
+      return note(res.offline ? tr('ly.offline') : tr('ly.none'),
+        res.offline ? h('button', { class: 'chip-btn', onClick: () => { this.close(); this.api.openSettings(); } }, tr('ly.settings')) : null);
+    }
+    ly.data = data;
+    const list = h('div', { class: 'ly-lines' + (data.synced ? ' synced' : '') });
+    data.lines.forEach((l, i) => {
+      const row = h(data.synced ? 'button' : 'p', { class: 'ly-line' + (l.text ? '' : ' gap'), dataset: { i } }, l.text || (data.synced ? '♪' : ''));
+      if (data.synced) row.onclick = () => this.api.engine.seek(l.t);
+      list.append(row);
+    });
+    const src = { lrc: tr('ly.srcLrc'), tags: tr('ly.srcTags'), own: tr('ly.srcOwn'), lrclib: 'LRCLIB' }[res.source] || '';
+    box.append(list);
+    foot.textContent = (data.synced ? tr('ly.synced') : tr('ly.plain')) + (src ? ' · ' + src : '');
+    this.followLyrics(this.api.engine.time, true);
+  }
+
+  /*
+   * The extra, hands-on source: the user looks the song up on Genius in the browser, copies the words and
+   * comes back — the player offers to keep them. Nothing is fetched from Genius by the player itself.
+   */
+  ownActions(t) {
+    if (!this.api.saveLyrics) return [];
+    const genius = h('button', { class: 'chip-btn' }, tr('ly.genius'));
+    genius.onclick = () => {
+      this.api.openUrl('https://genius.com/search?q=' + encodeURIComponent([t.artist, t.title].filter(Boolean).join(' ')));
+      this.awaitPaste = t.id;
+      if (!this.onFocus) { this.onFocus = () => this.offerClipboard(); addEventListener('focus', this.onFocus); }
+    };
+    const paste = h('button', { class: 'chip-btn' }, tr('ly.paste'));
+    paste.onclick = () => this.editLyrics(t, '');
+    return [genius, paste];
+  }
+
+  /** back from the browser: if the clipboard now holds something lyric-shaped, offer it — never save on its own */
+  async offerClipboard() {
+    const t = this.api.getTrack();
+    if (!this.open || this.mode !== 'lyrics' || !t || this.awaitPaste !== t.id || !this.el) return;
+    const text = String(await this.api.readClipboard().catch(() => '') || '').trim();
+    const lines = text.split(/\n/).filter((l) => l.trim());
+    if (lines.length < 4 || text.length < 60 || /^https?:\/\//.test(text)) return;
+    const box = this.el.querySelector('.dv-lyrics');
+    if (!box || box.querySelector('.ly-offer, .ly-edit')) return;
+    const offer = h('div', { class: 'ly-offer' },
+      h('b', {}, tr('ly.offerT')),
+      h('div', { class: 'ly-preview' }, lines.slice(0, 3).join('\n') + (lines.length > 3 ? '\n…' : '')),
+      h('div', { class: 'ly-acts' },
+        h('button', { class: 'chip-btn on', onClick: () => this.keepLyrics(t, text) }, tr('ly.offerYes')),
+        h('button', { class: 'chip-btn', onClick: () => this.editLyrics(t, text) }, tr('ly.offerEdit')),
+        h('button', { class: 'text-btn', onClick: () => { this.awaitPaste = null; offer.remove(); } }, tr('ly.offerNo'))));
+    box.prepend(offer);
+    box.scrollTop = 0;
+  }
+
+  editLyrics(t, text) {
+    const box = this.el && this.el.querySelector('.dv-lyrics');
+    if (!box) return;
+    box.innerHTML = '';
+    const area = h('textarea', { class: 'ly-area', spellcheck: 'false', placeholder: tr('ly.pastePh') });
+    area.value = text;
+    area.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Escape') this.loadLyrics(true); if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) save.click(); });
+    const save = h('button', { class: 'chip-btn on', onClick: () => { if (area.value.trim()) this.keepLyrics(t, area.value); else area.focus(); } }, tr('ly.save'));
+    box.append(h('div', { class: 'ly-edit' }, h('small', {}, tr('ly.pasteHint')), area,
+      h('div', { class: 'ly-acts' }, save, h('button', { class: 'text-btn', onClick: () => this.loadLyrics(true) }, tr('pi.cancel')))));
+    setTimeout(() => area.focus(), 30);
+  }
+
+  async keepLyrics(t, text) {
+    this.awaitPaste = null;
+    try { await this.api.saveLyrics(t, text); }
+    catch (e) { console.error(e); return; }
+    if (this.api.getTrack() === t) this.loadLyrics(true);
+  }
+
+  /**
+   * The track only had a title (often a garbled file name) and the lyrics were found by guessing who sings it:
+   * say so, and offer to give the track its real name. Nothing is renamed without the click.
+   */
+  suggestName(t, m) {
+    const foot = this.el && this.el.querySelector('.ly-foot');
+    this.el && this.el.querySelectorAll('.ly-suggest').forEach((n) => n.remove());
+    if (!m || !m.artist || !this.api.renameTrack) return;
+    const same = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+    if (same(m.artist, t.artist) && same(m.title, t.title)) return;
+    const bar = h('div', { class: 'ly-suggest' },
+      h('span', {}, tr('ly.guess', { name: `${m.artist} — ${m.title}` })),
+      h('button', { class: 'chip-btn on', onClick: () => { this.api.renameTrack(t, m); bar.remove(); } }, tr('ly.rename')),
+      h('button', { class: 'text-btn', onClick: () => bar.remove() }, tr('ly.notIt')));
+    foot.before(bar);
+  }
+
+  /** light the line being sung and keep it in the middle of the box */
+  followLyrics(time, jump) {
+    const ly = this.ly;
+    if (!ly || !ly.data || !ly.data.synced || !this.el) return;
+    const idx = lineAt(ly.data.lines, time);
+    if (idx === ly.idx && !jump) return;
+    ly.idx = idx;
+    const list = this.el.querySelector('.ly-lines');
+    if (!list) return;
+    list.querySelectorAll('.ly-line.now, .ly-line.past').forEach((n) => n.classList.remove('now', 'past'));
+    [...list.children].forEach((n, i) => { if (i < idx) n.classList.add('past'); });
+    const row = list.children[idx];
+    if (row) row.classList.add('now');
+    const box = this.el.querySelector('.dv-lyrics');
+    const target = row ? row.offsetTop - box.clientHeight / 2 + row.offsetHeight / 2 : 0;
+    box.scrollTo({ top: Math.max(0, target), behavior: jump || matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
   }
 
   refreshMeta(root = this.el) {

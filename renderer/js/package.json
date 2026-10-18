@@ -1,0 +1,4 @@
+{
+  "//": "the renderer code is ES modules; main.js loads names.js from here with import()",
+  "type": "module"
+}

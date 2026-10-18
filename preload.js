@@ -17,7 +17,8 @@ contextBridge.exposeInMainWorld('sds', {
     exists: (p) => ipcRenderer.invoke('library:exists', p),
     existsMany: (paths) => ipcRenderer.invoke('library:existsMany', paths),
     formatInfo: (paths) => ipcRenderer.invoke('library:formatInfo', paths),
-    reveal: (p) => ipcRenderer.invoke('library:reveal', p)
+    reveal: (p) => ipcRenderer.invoke('library:reveal', p),
+    scan: () => ipcRenderer.invoke('library:scan')
   },
   web: {
     search: (query, settings) => ipcRenderer.invoke('web:search', { query, settings }),
@@ -31,6 +32,23 @@ contextBridge.exposeInMainWorld('sds', {
     write: (p, data) => ipcRenderer.invoke('export:write', { path: p, data })
   },
   covers: { pick: () => ipcRenderer.invoke('cover:pick') },
+  meta: { repair: (t) => ipcRenderer.invoke('meta:repair', t) },
+  lyrics: {
+    get: (t, opts) => ipcRenderer.invoke('lyrics:get', t, opts),
+    save: (p, text) => ipcRenderer.invoke('lyrics:save', p, text),
+    clipboard: () => ipcRenderer.invoke('lyrics:clipboard')
+  },
+  importer: {
+    deezer: (url) => ipcRenderer.invoke('import:deezer', url),
+    spotify: {
+      status: (clientId) => ipcRenderer.invoke('spotify:status', clientId),
+      login: (clientId) => ipcRenderer.invoke('spotify:login', clientId),
+      cancel: () => ipcRenderer.invoke('spotify:cancel'),
+      logout: () => ipcRenderer.invoke('spotify:logout'),
+      playlists: () => ipcRenderer.invoke('spotify:playlists'),
+      tracks: (id) => ipcRenderer.invoke('spotify:tracks', id)
+    }
+  },
   app: {
     paths: () => ipcRenderer.invoke('app:paths'), setLang: (l) => ipcRenderer.invoke('app:lang', l),
     prefs: () => ipcRenderer.invoke('app:prefs'), pendingFiles: () => ipcRenderer.invoke('app:pendingFiles'),

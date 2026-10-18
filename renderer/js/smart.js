@@ -5,6 +5,7 @@
  *  - Library Health: stats, broken titles (mojibake), duplicates, quality.
  */
 import { t as tr, tn } from './i18n.js';
+import { cleanName, isMessy } from './names.js';
 
 /* ------------------------------- key helpers ------------------------------- */
 const cam = (c) => (c ? { n: parseInt(c, 10), l: c.slice(-1) } : null);
@@ -149,9 +150,7 @@ export function looksBroken(s) {
   return ext >= 2 || (s.length > 3 && sym / s.length > 0.25);
 }
 export function titleFromPath(p) {
-  const base = String(p || '').split(/[\\/]/).pop().replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ').trim();
-  const m = base.split(/\s[-–—]\s/);
-  return m.length >= 2 ? { artist: m[0].trim(), title: m.slice(1).join(' - ').trim() } : { artist: '', title: base };
+  return cleanName(String(p || '').split(/[\\/]/).pop().replace(/\.[^.]+$/, ''));
 }
 
 const normTitle = (s) => String(s || '').toLowerCase()
@@ -188,6 +187,11 @@ export function healthReport(tracks, missing = new Set()) {
     qual[quality(t)]++;
     const fix = fixMojibake(t.title) || fixMojibake(t.artist);
     if (fix || looksBroken(t.title) || looksBroken(t.artist)) broken.push({ t, fixTitle: fixMojibake(t.title), fixArtist: fixMojibake(t.artist), fromFile: titleFromPath(t.path) });
+    // «1546698_Apoplexy», «Song (zaycev.net)»: download junk in a name the user never typed in by hand
+    else if (!(t.edited || []).includes('title') && isMessy(t.title, t.artist)) {
+      const c = cleanName((t.artist ? t.artist + ' - ' : '') + t.title);
+      broken.push({ t, junk: true, fixTitle: c.title !== t.title ? c.title : null, fixArtist: c.artist && c.artist !== t.artist ? c.artist : null, fromFile: titleFromPath(t.path) });
+    }
     const k = normTitle(t.title) + '|' + normTitle(t.artist);
     if (normTitle(t.title).length > 1) { if (!groups.has(k)) groups.set(k, []); groups.get(k).push(t); }
   }

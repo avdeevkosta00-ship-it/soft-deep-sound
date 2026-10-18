@@ -174,8 +174,11 @@ export class Shapes {
       requestAnimationFrame(loop);
       // nothing to show behind full-screen views or a hidden window: let the GPU rest
       const b = document.body.classList;
-      if (this.lost || document.documentElement.classList.contains('win-hidden') || document.hidden || b.contains('deep-open') || b.contains('visual-open')) { this.last = now; return; }
+      const fx = document.documentElement.dataset.fx || 'live';
+      if (fx === 'off' || (fx === 'still' && this.drawn) || this.lost || document.documentElement.classList.contains('win-hidden') || document.hidden || b.contains('deep-open') || b.contains('visual-open')) { this.last = now; return; }
+      this.pace = fx === 'calm' ? .35 : fx === 'still' ? 0 : 1;
       this.frame(now);
+      this.drawn = true;
     };
     requestAnimationFrame(loop);
   }
@@ -229,6 +232,7 @@ export class Shapes {
   }
 
   readTheme() {
+    this.drawn = false; // a still background repaints once in the new colours
     const cs = getComputedStyle(document.documentElement), v = (n) => cs.getPropertyValue(n).trim();
     const rgb = (n, d) => (v(n) || d).split(/\s+/).map((x) => +x / 255);
     this.style = {
@@ -239,6 +243,7 @@ export class Shapes {
   }
 
   resize() {
+    this.drawn = false;
     this.dpr = Math.min(devicePixelRatio || 1, 1.5);
     this.W = innerWidth; this.H = innerHeight;
     this.c.width = Math.round(this.W * this.dpr); this.c.height = Math.round(this.H * this.dpr);
@@ -283,14 +288,15 @@ export class Shapes {
   }
 
   frame(now) {
-    const dt = Math.min(.1, (now - this.last) / 1000); this.last = now;
+    const raw = Math.min(.1, (now - this.last) / 1000); this.last = now;
     // adaptive quality: if frames are consistently slow (software GL), halve the point count once
-    this.slow = this.slow * .97 + (dt > .045 ? 1 : 0) * .03;
+    this.slow = this.slow * .97 + (raw > .045 ? 1 : 0) * .03;
+    const pace = this.pace == null ? 1 : this.pace, dt = raw * pace;
     if (this.slow > .6 && this.quality > .5) { this.quality = .5; this.slow = 0; this.build(); }
     const playing = this.isPlaying();
     this.speed += ((playing ? 1 : .35) - this.speed) * .03;
     this.t += dt * this.speed;
-    const e = playing ? this.energy() : 0;
+    const e = playing ? this.energy() * (pace === 1 ? 1 : .3) : 0;
     this.kick = Math.max(this.kick * .92, e);
     const gl = this.gl, u = this.u, st = this.style, W = this.W, H = this.H;
     gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);

@@ -162,8 +162,9 @@ export class WaveSeek {
     g.clearRect(0, 0, W, H);
     if (!this.peaks || !W) return;
     const bw = 2, gap = 1.2, n = Math.floor(W / (bw + gap));
-    const theme = document.documentElement.dataset.theme;
-    if (!this.pal || this.pal.theme !== theme) { // colours are read once per theme, not on every frame
+    // colours are read once per theme and accent (Settings → Оформление), not on every frame
+    const theme = document.documentElement.dataset.theme + '|' + document.documentElement.style.getPropertyValue('--accent');
+    if (!this.pal || this.pal.theme !== theme) {
       const deep = this.onDark || document.documentElement.dataset.tone === 'dark';
       const cs = getComputedStyle(document.documentElement);
       const acc = cs.getPropertyValue('--accent').trim() || '#1f45e8';

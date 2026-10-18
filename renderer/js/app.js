@@ -13,6 +13,10 @@ import { VisualMode } from './visual.js';
 import { findSimilar, buildSession, healthReport, fixMojibake, titleFromPath, analyzed, quality, MOODS } from './smart.js';
 import { runSplash } from './splash.js';
 import { search as fuzzySearch } from './fuzzy.js';
+import { createPlaylistImport } from './playlist-import.js';
+import { createLibraryRepair } from './library-repair.js';
+import { createAppearance } from './appearance.js';
+import { createTour, WELCOME } from './tour.js';
 import { captureState, describe, renderProcessed, encodeWav, encodeMp3 } from './exporter.js';
 import { ICON } from './icons.js';
 import { hash } from './ui.js';
@@ -25,7 +29,8 @@ const DEFAULTS = {
   pitch: { semi: 0, cents: 0, vinyl: false, on: true },
   ambient: { depth: .7, sens: .5, master: .8, levels: { rain: .55, ocean: .55, vinyl: .45, fire: .5, train: .5 } },
   eq: { on: true, gains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], pre: 0, preset: 'flat' },
-  layout: null, bgAnalyze: true, exportFormat: 'mp3', exportAdd: true
+  layout: null, bgAnalyze: true, exportFormat: 'mp3', exportAdd: true, spotifyClientId: '', tourDone: false, showcaseDone: false, lyricsOnline: true,
+  look: { accent: 'theme', fx: 'live', blur: 'normal' }
 };
 const THEMES = [
   { key: 'soft', tone: 'light', name: 'th.soft', desc: 'th.soft.d', bg: 'linear-gradient(170deg,#9fc6f2,#eef5fd)', p: '#ffffffaa', a: '#1f45e8', t: '#0a1450' },
@@ -43,7 +48,7 @@ const S = {
 };
 const engine = new AudioEngine();
 const ambient = new Ambient(engine);
-let viz, wave, tools, layout, bg, deep, visual, shapes;
+let viz, wave, tools, layout, bg, deep, visual, shapes, plImport, tour, repair, look;
 const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 const preview = new Audio();
 
@@ -100,9 +105,21 @@ async function importPaths(paths) {
   index(); save(); renderSidebar();
   if (['library', 'recent'].includes(S.view.type)) render(false);
   if (added.length) importToast(added);
+  if (added.length && repair) setTimeout(() => repair.suggestAfterImport(added), 1400);
+  if (added.length) recheckImported();
   else if (probed.length) toast(tr('toast.exists'));
   else toast(tr('toast.noAudio'));
   return probed.map((x) => x.id);
+}
+/** new files may complete imported playlists that were waiting for them */
+async function recheckImported() {
+  if (!plImport) return;
+  let total = 0;
+  for (const pl of S.playlists.filter((p) => p.missing && p.missing.length)) {
+    const n = await plImport.recheck(pl);
+    if (n) { total += n; flashPlaylist(pl.id); }
+  }
+  if (total) { renderSidebar(); if (S.view.type === 'playlist') render(false); toast(tr('pi.autoFound', { n: tn('tracks', total) })); }
 }
 /** files opened from Explorer ("Open with", double-click): add them and start playing */
 async function openFiles(files) {
@@ -401,6 +418,7 @@ async function applyPulse(t) {
   const els = [$('.bass-glow'), $('.play-bezel'), $('#coverFrame')];
   for (const el of els) rgb ? el.style.setProperty('--pulse', `rgb(${rgb.join(',')})`) : el.style.removeProperty('--pulse');
   bg && bg.setPulse(rgb);
+  look && look.onTrack(t);
 }
 
 /* ============================== now playing ============================== */
@@ -575,9 +593,11 @@ function emptyState(host, title, text, withImport = true) {
   host.append(h('div', { class: 'empty' }, h('div', { class: 'empty-card' },
     h('div', { class: 'empty-ring', html: ICON.note.replace('<svg', '<svg') }),
     h('h3', {}, title), h('p', {}, text),
-    withImport ? h('div', { style: { display: 'flex', gap: '10px', marginTop: '8px' } },
-      pill(tr('v.add'), ICON.kImport, () => pickImport('files')),
-      pill(tr('v.folder'), ICON.kFolder, () => pickImport('folder'), true)) : null)));
+    withImport ? h('div', { style: { display: 'grid', justifyItems: 'center', gap: '10px', marginTop: '8px' } },
+      pill(tr('lr.findBtn'), ICON.note, () => repair.openFinder()),
+      h('div', { style: { display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '10px' } },
+        pill(tr('v.add'), ICON.kImport, () => pickImport('files'), true),
+        pill(tr('v.folder'), ICON.kFolder, () => pickImport('folder'), true))) : null)));
 }
 
 function viewLibrary(host) {
@@ -619,6 +639,13 @@ function viewPlaylist(host) {
     actions: ts.length ? [pill(tr('v.shuffle'), ICON.kShuffle, () => { S.shuffle = true; syncModeBtns(); playFrom(pl.trackIds, (Math.random() * ts.length) | 0); }, true),
       pill(tr('v.play'), ICON.kPlay, () => playFrom(pl.trackIds, 0))] : []
   }));
+  if (pl.missing && pl.missing.length) {
+    const again = h('button', { class: 'chip-btn' }, tr('pi.recheck'));
+    again.onclick = async () => { again.disabled = true; const n = await plImport.recheck(pl); renderSidebar(); render(false); toast(n ? tr('pi.recheckFound', { n: tn('tracks', n) }) : tr('pi.recheckNone')); };
+    host.append(h('div', { class: 'notice pi-missing-note' },
+      h('span', {}, h('b', {}, tr('pi.missingNote', { n: tn('tracks', pl.missing.length) })), ' ', tr('pi.missingNoteD')),
+      h('span', { class: 'grow' }), h('button', { class: 'chip-btn', onClick: () => plImport.showMissing(pl) }, tr('pi.show')), again));
+  }
   if (!ts.length) return emptyState(host, tr('pl.emptyT'), tr('pl.emptyD'), false);
   host.append(trackList(ts.map((t) => t.id), { playlist: pl }));
 }
@@ -692,6 +719,7 @@ function viewHealth(host) {
     h('div', {}, h('b', {}, tr('h.soundTitle')), h('small', { id: 'healthAnalyze' }, tr('h.analyzed', { n: r.analyzed, total: r.count })), h('div', { class: 'hbar' }, h('i', { style: { width: pct + '%' } }))),
     r.analyzed < r.count ? pill(tr('h.analyzeAll'), ICON.session, () => { backgroundAnalyze(true); toast(tr('h.analyzeStarted')); }, true) : h('span', { class: 'badge lic' }, tr('h.allDone'))));
 
+  host.append(repair.repairCard());
   host.append(h('div', { class: 'sec-title' }, tr('h.problems')));
   const card = (cls, count, title, desc, body) => {
     const d = h('details', { class: 'h-card ' + cls + (count ? '' : ' ok') });
@@ -713,7 +741,7 @@ function viewHealth(host) {
       box.append(h('div', { class: 'h-fix' },
         h('div', { class: 'h-was' }, h('small', {}, tr('h.now')), h('span', { class: 'mono' }, `${b.t.artist ? b.t.artist + ' — ' : ''}${b.t.title}`)),
         h('div', { class: 'h-arrow', html: '→' }),
-        h('div', { class: 'h-will' }, h('small', {}, b.fixTitle || b.fixArtist ? tr('h.encoding') : tr('h.fromFile')), h('span', {}, sugg)),
+        h('div', { class: 'h-will' }, h('small', {}, b.junk ? tr('h.junk') : b.fixTitle || b.fixArtist ? tr('h.encoding') : tr('h.fromFile')), h('span', {}, sugg)),
         h('div', { class: 'h-acts' },
           btn(tr('h.apply'), () => { if (b.fixTitle || b.fixArtist) applyFix(b); else { b.t.title = b.fromFile.title; if (b.fromFile.artist) b.t.artist = b.fromFile.artist; } save(); render(false); }, true),
           btn(tr('h.editManual'), () => editTrack(b.t)))));
@@ -899,6 +927,38 @@ function openExport(t = S.current) {
 
 /* ---------------------------- smart session ---------------------------- */
 const sessionOpts = { mood: 'deep', minutes: 45, bpm: null, noRepeat: true, artistCap: true, fromCurrent: false };
+/* lyrics: one answer per track per session (the main process keeps the LRCLIB cache on disk) */
+const lyricsCache = new Map();
+async function getLyrics(t, force) {
+  if (!bridge.lyrics) return { text: '', offline: true };
+  // the promise itself is cached, so reopening Deep View while a slow lookup runs waits for the same answer
+  if (!force && lyricsCache.has(t.id)) return lyricsCache.get(t.id);
+  const p = bridge.lyrics.get({ path: t.path, title: t.title, artist: t.artist, album: t.album, duration: t.duration }, { online: S.settings.lyricsOnline });
+  lyricsCache.set(t.id, p);
+  p.then((res) => { if (!res && lyricsCache.get(t.id) === p) lyricsCache.delete(t.id); }, () => { if (lyricsCache.get(t.id) === p) lyricsCache.delete(t.id); });
+  return p;
+}
+
+/* first music → a short showcase of what makes the player worth keeping: Deep View and the tools, live */
+const SHOWCASE = [
+  { key: 'sc.hello', enter: () => { if (deep.isOpen) deep.close(); if (tools.isOpen) tools.close(); }, wait: 0 },
+  { key: 'sc.deep', sel: '.deep .dv-sec', enter: () => { if (tools.isOpen) tools.close(); deep.show(); }, wait: 760 },
+  { key: 'sc.tools', sel: '#rack', enter: () => { if (deep.isOpen) deep.close(); tools.open(); tools.show(null); }, wait: 620 },
+  { key: 'sc.session', sel: '#sessionBtn', enter: () => { if (tools.isOpen) tools.close(); }, wait: 320 },
+  { key: 'sc.done', sel: '#helpBtn' }
+];
+let showcaseTimer = 0;
+function maybeShowcase() {
+  if (S.settings.showcaseDone || showcaseTimer) return;
+  // give the first track a moment to be heard before anything covers the screen
+  showcaseTimer = setTimeout(() => {
+    showcaseTimer = 0;
+    if (S.settings.showcaseDone || !S.current || engine.audio.paused || tour.isOpen || deep.isOpen || visual.isOpen || $('#modal').classList.contains('open')) return;
+    S.settings.showcaseDone = true; save();
+    tour.start(SHOWCASE, { onDone: () => {}, onClose: () => { if (deep.isOpen) deep.close(); if (tools.isOpen) tools.close(); } });
+  }, 2600);
+}
+
 function openSession() {
   const o = sessionOpts;
   const preview = h('div', { class: 'ss-preview' });
@@ -1312,6 +1372,7 @@ function bindDeck() {
     // a single soft light impulse around Play — not a constant neon glow
     const pb = $('#playBtn'); pb.classList.remove('impulse'); void pb.offsetWidth; pb.classList.add('impulse');
     clearTimeout(pb._imp); pb._imp = setTimeout(() => pb.classList.remove('impulse'), 1200);
+    maybeShowcase();
   });
   engine.addEventListener('pause', () => { document.body.classList.remove('playing'); document.body.classList.add('paused'); save(); });
   engine.addEventListener('error', () => { if (S.current && !engine.loading) toast(tr('toast.fileGone', { title: S.current.title })); });
@@ -1422,6 +1483,11 @@ function applyTheme(theme) {
   const th = THEMES.find((t) => t.key === theme);
   $('#themeName').textContent = tr(th.name); $('#themeSw').style.background = th.bg;
   const sd = $('#sdSwitch'); if (sd) { const dark = DARK_THEMES.has(theme); sd.classList.toggle('dark', dark); sd.setAttribute('aria-checked', String(dark)); }
+  // accent overrides depend on the tone (darker on light themes): re-derive them, then repaint the canvases
+  if (look) look.apply(); else refreshCanvases();
+}
+/** canvases read colours once; after a theme or accent change they read them again */
+function refreshCanvases() {
   requestAnimationFrame(() => {
     viz && viz.readTheme(); wave && wave.draw(); bg && bg.readTheme(); shapes && shapes.readTheme();
     tools && tools.panels.eq && tools.panels.eq.drawCurve && tools.panels.eq.drawCurve();
@@ -1475,11 +1541,14 @@ async function openSettings() {
     h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('set.lang')), h('small', {}, tr('set.langD'))),
       h('div', { class: 'seg' }, ...LANGS.map(([k, name]) => h('button', { class: getLang() === k ? 'on' : '', onClick: () => { applyLang(k); openSettings(); } }, name)))),
     h('div', { class: 'set-row', style: { display: 'block' } }, h('b', { style: { marginBottom: '10px' } }, tr('set.theme')), themeCards()),
+    look.panel(() => S.current),
     h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('set.layout')), h('small', {}, tr('set.layoutD'))), h('button', { class: 'chip-btn', onClick: () => layout.reset() }, tr('set.reset'))),
     h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('set.chime')), h('small', {}, tr('set.chimeD'))), tg(S.settings.chime, (v) => { S.settings.chime = v; save(); })),
     h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('set.bg')), h('small', {}, tr('set.bgD'))), tg(S.settings.bgAnalyze, (v) => { S.settings.bgAnalyze = v; save(); if (v) backgroundAnalyze(); })),
+    h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('set.lyrics')), h('small', {}, tr('set.lyricsD'))), tg(S.settings.lyricsOnline, (v) => { S.settings.lyricsOnline = v; save(); lyricsCache.clear(); })),
     prefs ? h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('set.tray')), h('small', {}, tr('set.trayD'))), tg(prefs.closeToTray, (v) => bridge.app.setPref('closeToTray', v))) : null,
     prefs && prefs.autostart !== null && prefs.autostart !== undefined ? h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('set.auto')), h('small', {}, tr('set.autoD'))), tg(prefs.autostart, (v) => bridge.app.setPref('autostart', v))) : null,
+    h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('tour.set')), h('small', {}, tr('tour.setD'))), h('button', { class: 'chip-btn', onClick: () => { closeModal(); setTimeout(() => tour.start(), 380); } }, tr('tour.setBtn'))),
     h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('set.jam')), h('small', {}, tr('set.jamD'))), jam),
     h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('set.dl')), h('small', { class: 'mono' }, paths.downloads))),
     h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('set.keys')),
@@ -1494,13 +1563,17 @@ async function pickImport(kind) {
 
 function bindChrome() {
   $$('[data-win]').forEach((b) => (b.onclick = () => bridge.win[b.dataset.win]()));
-  $('#themeBtn').onclick = (e) => popover(e.currentTarget, h('div', {}, h('div', { class: 'pop-title' }, tr('pop.theme')), themeCards()));
+  $('#themeBtn').onclick = (e) => popover(e.currentTarget, h('div', {}, h('div', { class: 'pop-title' }, tr('pop.theme')), themeCards(),
+    h('div', { class: 'pop-title ap-pop-title' }, tr('ap.accentShort')), look.accentRow(() => S.current, true)));
   $('#layoutBtn').onclick = (e) => layout.menu(e.currentTarget);
   $('#brandHome').onclick = () => { closePopover(); if (tools.isOpen) tools.close(); setView({ type: 'library' }); };
   $('#coverEdit').onclick = (e) => { e.stopPropagation(); if (S.current) setTrackCover(S.current); };
   $('#coverEdit').addEventListener('dblclick', (e) => e.stopPropagation());
   $('#sessionBtn').onclick = openSession;
-  $('#npExpand').onclick = () => deep.show();
+  $('#importPlBtn').onclick = () => plImport.open();
+  $('#helpBtn').onclick = () => tour.start();
+  $('#npExpand').onclick = () => deep.show('info');
+  $('#npLyrics').onclick = () => deep.show('lyrics');
   $('#viz').addEventListener('click', () => visual.show());
   $('#viz').title = tr('vis.open');
   $('#sdSwitch').onclick = () => switchSoftDeep();
@@ -1528,11 +1601,13 @@ function bindChrome() {
   const ov = $('#dropOverlay');
   let depth = 0;
   const isFiles = (e) => e.dataTransfer && [...e.dataTransfer.types].includes('Files');
-  addEventListener('dragenter', (e) => { if (!isFiles(e)) return; depth++; ov.classList.add('on'); });
+  const inDialog = () => $('#modal').classList.contains('open');
+  addEventListener('dragenter', (e) => { if (!isFiles(e) || inDialog()) return; depth++; ov.classList.add('on'); });
   addEventListener('dragleave', (e) => { if (!isFiles(e)) return; if (--depth <= 0) { depth = 0; ov.classList.remove('on'); } });
   addEventListener('dragover', (e) => { if (isFiles(e)) e.preventDefault(); });
   addEventListener('drop', (e) => {
     if (!isFiles(e)) return;
+    if (inDialog()) { e.preventDefault(); depth = 0; ov.classList.remove('on'); return; }
     e.preventDefault(); depth = 0; ov.classList.remove('on');
     const paths = [...e.dataTransfer.files].map((f) => bridge.pathForFile(f)).filter(Boolean);
     importPaths(paths);
@@ -1575,6 +1650,7 @@ function bindChrome() {
       case 'KeyA': tool('ambient'); break;
       case 'KeyE': tool('eq'); break;
       case 'KeyF': if (visual.isOpen) visual.close(); deep.toggle(); break;
+      case 'KeyL': if (visual.isOpen) visual.close(); deep.toggleLyrics(); break;
       case 'KeyV': if (deep.isOpen) deep.close(); visual.isOpen ? visual.close() : visual.show(); break;
       case 'KeyD': switchSoftDeep(); break;
     }
@@ -1599,6 +1675,7 @@ async function boot() {
     shapes = new Shapes($('#shapes'), { isPlaying: () => engine.playing, energy: () => Math.min(1, viz.bass * 1.4) });
     bg.gl = true; bg.resize();
   } catch (e) { console.warn('shapes off:', e.message); $('#shapes').remove(); }
+  look = createAppearance({ S, save, hslToRgb, rgbToHsl, coverColor, onChange: refreshCanvases });
   layout = new Layout(S.settings, save);
   tools = new Tools({ engine, ambient, settings: S.settings, save, onState: () => renderBadges() });
   deep = new DeepView({
@@ -1606,9 +1683,34 @@ async function boot() {
     playIds, playNext, next: () => next(), prev, toggle: togglePlay,
     ensureAnalysis: (t) => { if (!analyzed(t) && t.av !== -1) runAnalysis(t); },
     ensureFormat: (t) => ensureFormat(t),
-    onSimilar: (t) => { deep.close(); setTimeout(() => setView({ type: 'similar', id: t.id }), 420); }
+    onSimilar: (t) => { deep.close(); setTimeout(() => setView({ type: 'similar', id: t.id }), 420); },
+    getLyrics: (t, force) => getLyrics(t, force),
+    saveLyrics: bridge.lyrics && bridge.lyrics.save ? async (t, text) => {
+      const r = await bridge.lyrics.save(t.path, text);
+      lyricsCache.delete(t.id);
+      toast(r && r.where === 'lrc' ? tr('ly.savedLrc') : tr('ly.savedApp'));
+    } : null,
+    readClipboard: () => (bridge.lyrics && bridge.lyrics.clipboard ? bridge.lyrics.clipboard() : Promise.resolve('')),
+    openUrl: (u) => bridge.web.open(u),
+    // the name the lyrics lookup recognised: artist and title, the album only if there was none
+    renameTrack: (t, m) => {
+      t.artist = m.artist; t.title = m.title;
+      if (!t.album && m.album) t.album = m.album;
+      t.edited = [...new Set([...(t.edited || []), 'artist', 'title', ...(m.album ? ['album'] : [])])];
+      lyricsCache.delete(t.id);
+      save(); index(); renderSidebar(); render(false); renderUpNext();
+      if (S.current === t) updateNowPlaying(t);
+      deep.update();
+      toast(tr('ly.renamed', { name: m.artist + ' — ' + m.title }));
+    },
+    openSettings: () => setTimeout(openSettings, 420)
   });
   visual = new VisualMode({ engine, getTrack: () => S.current, artistOf, toggle: togglePlay });
+  repair = createLibraryRepair({ S, bridge, save, art, artistOf, render, importPaths, pickImport, setView,
+    refreshArt: () => (S.current ? coverChanged(S.current) : renderUpNext()) });
+  plImport = createPlaylistImport({ S, bridge, save, art, artistOf, createPlaylist, setView, openSearchView,
+    pickFiles: async () => { const p = await bridge.library.pick('files'); if (!p || !p.length) return false; await importPaths(p); return true; } });
+  tour = createTour({ onDone: () => { S.settings.tourDone = true; save(); }, beforeStep: () => { closePopover(); if (deep.isOpen) deep.close(); if (visual.isOpen) visual.close(); if (tools.isOpen) tools.close(); } });
   applyTheme(S.settings.theme);
   bindDeck(); bindChrome(); syncModeBtns();
   renderSidebar(); render(true); renderUpNext();
@@ -1621,6 +1723,7 @@ async function boot() {
   if (S.qi >= 0 && S.queue[S.qi]) loadCurrent(false, S.lastPos || 0);
   await splash;
   if (isMock && !S.tracks.length) await importPaths(await bridge.library.pick('files'));
+  if (!S.settings.tourDone && !/notour/.test(location.hash)) setTimeout(() => { if (!$('#modal').classList.contains('open')) tour.start(WELCOME); }, 900);
   setTimeout(() => backgroundAnalyze(), 6000);
 }
 boot();

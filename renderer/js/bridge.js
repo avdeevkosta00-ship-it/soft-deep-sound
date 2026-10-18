@@ -86,8 +86,12 @@ function mock() {
       exists: async () => true,
       existsMany: async (paths) => paths.map((p) => !p.includes('//4')),
       formatInfo: async (paths) => Object.fromEntries(paths.map((p) => { const i = +p.split('//')[1]; return [p, { bitrate: BR[i] || 192, sampleRate: 44100, bitDepth: null, codec: 'MPEG 1 Layer 3', lossless: false, channels: 2, size: 4200000, genre: 'Electronic', year: 2021 }]; })),
-      reveal: async () => {}
+      reveal: async () => {},
+      scan: async () => { await new Promise((r) => setTimeout(r, 900)); return [{ path: 'C:\Users\demo\Music', count: DEMO.length }, { path: 'D:\Музыка', count: 2 }]; }
     },
+    lyrics: { get: async () => { await new Promise((r) => setTimeout(r, 400)); return { source: 'lrc', text: Array.from({ length: 14 }, (_, i) => `[00:${String(i * 2.5 | 0).padStart(2, '0')}.${i % 2 ? '50' : '00'}]Demo line ${i + 1}${i % 4 === 3 ? '' : ' — words of the song'}`).join('\n') }; } },
+    // no network lookups in the browser preview: every second track "is found"
+    meta: { repair: async (t) => { await new Promise((r) => setTimeout(r, 250)); return t.title.length % 2 ? null : { mbid: 'demo', confidence: t.title.length % 3 ? .93 : .7, title: t.title, artist: t.artist || 'Demo Artist', album: t.album || 'Demo Album', year: 2019, genre: 'Ambient', cover: null }; } },
     web: {
       search: async (q) => {
         await new Promise((r) => setTimeout(r, 900));
@@ -117,6 +121,38 @@ function mock() {
     exporter: {
       pick: async (name, format) => ({ path: `export://${name}.${format}`, format }),
       write: async (p, data) => { urls.set(p, URL.createObjectURL(new Blob([data], { type: p.endsWith('.wav') ? 'audio/wav' : 'audio/mpeg' }))); window.__lastExport = data; return p; }
+    },
+    importer: {
+      deezer: async (url) => {
+        await new Promise((r) => setTimeout(r, 700));
+        if (!/deezer/.test(url)) throw new Error('bad-url');
+        return { source: 'deezer', kind: 'playlist', title: 'Night Drive', owner: 'demo', tracks: [
+          { title: 'Glass Horizon', artist: 'Aerolume', album: 'Skylines', duration: 36 },
+          { title: 'Chrome Weather (Remastered 2021)', artist: 'Aerolume', album: 'Skylines', duration: 36 },
+          { title: 'Soft Signal', artist: 'Mira Vale feat. Nobody', album: '', duration: 37 },
+          { title: 'Deep Current (Club Remix)', artist: 'Northbound', album: '', duration: 212 },
+          { title: 'Frosted Avenue', artist: 'Lumen Park', album: '', duration: 36 },
+          { title: 'Midnight City', artist: 'M83', album: 'Hurry Up, We’re Dreaming', duration: 244 },
+          { title: 'Group of Blood', artist: 'Kino', album: '', duration: 286 },
+          { title: 'Blinding Lights', artist: 'The Weeknd', album: 'After Hours', duration: 200 }
+        ] };
+      },
+      spotify: (() => {
+        let on = false, waiting = null;
+        return {
+          status: async () => ({ connected: on, user: on ? 'Konstantin' : '', redirect: 'http://127.0.0.1:43117/callback' }),
+          login: (id) => new Promise((res, rej) => { if (!/^[0-9a-f]{32}$/i.test(id)) return rej(new Error('bad-client-id')); waiting = rej; setTimeout(() => { if (waiting) { on = true; waiting = null; res({ connected: true, user: 'Konstantin' }); } }, 1500); }),
+          cancel: async () => { if (waiting) { waiting(new Error('cancelled')); waiting = null; } },
+          logout: async () => { on = false; return { connected: false }; },
+          playlists: async () => { await new Promise((r) => setTimeout(r, 400)); return { user: 'Konstantin', liked: 124, playlists: [
+            { id: 'a1', name: 'Ночная дорога', count: 23, image: null, owner: 'Konstantin', own: true },
+            { id: 'a2', name: 'Фокус', count: 41, image: null, owner: 'Konstantin', own: true },
+            { id: 'a3', name: 'Today’s Top Hits', count: 50, image: null, owner: 'Spotify', own: false }] }; },
+          tracks: async () => { await new Promise((r) => setTimeout(r, 500)); return { source: 'spotify', kind: 'playlist', title: 'Ночная дорога', tracks: [
+            { title: 'Runner Line', artist: 'Faith & Rooftops', duration: 36 }, { title: 'Glass Horizon', artist: 'Aerolume', duration: 36 },
+            { title: 'Starboy', artist: 'The Weeknd, Daft Punk', duration: 230 }] }; }
+        };
+      })()
     },
     covers: {
       pick: () => new Promise((res) => {

@@ -4,16 +4,21 @@
  * Owns: window, the privileged sds:// protocol (app files + local media with Range support),
  * library persistence, metadata probing, web search providers and safe downloads.
  */
-const { app, BrowserWindow, ipcMain, dialog, protocol, shell, Menu, nativeTheme, Tray, nativeImage, powerMonitor, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, protocol, shell, Menu, nativeTheme, Tray, nativeImage, powerMonitor, screen, safeStorage, clipboard } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const fsp = fs.promises;
 const crypto = require('crypto');
 const { Readable } = require('stream');
+const { pathToFileURL } = require('url');
 const { searchAll } = require('./src/search/providers');
 const { safeDownload } = require('./src/search/downloader');
 const { extractAudio } = require('./src/search/extract');
 const { tm, setLang } = require('./src/i18n-main');
+const { importDeezer } = require('./src/import/deezer');
+const spotify = require('./src/import/spotify');
+const musicbrainz = require('./src/meta/musicbrainz');
+const lyrics = require('./src/meta/lyrics');
 
 const RENDERER_DIR = path.join(__dirname, 'renderer');
 const AUDIO_EXT = new Set(['.mp3', '.flac', '.wav', '.ogg', '.oga', '.opus', '.m4a', '.aac', '.webm']);
@@ -168,6 +173,10 @@ async function formatInfo(filePath) {
   } catch { return null; }
 }
 
+/** the shared file-name rules (renderer/js/names.js, an ES module) */
+let namesMod = null;
+const names = () => namesMod || (namesMod = import(pathToFileURL(path.join(__dirname, 'renderer', 'js', 'names.js')).href));
+
 async function probe(filePath) {
   mm = mm || require('music-metadata');
   const id = crypto.createHash('sha1').update(filePath).digest('hex').slice(0, 16);
@@ -176,14 +185,15 @@ async function probe(filePath) {
     id, path: filePath, title: base, artist: '', album: '', duration: 0, cover: null,
     format: path.extname(filePath).slice(1).toUpperCase(), addedAt: Date.now(), bpm: null
   };
-  // "Artist - Title.mp3" fallback when tags are empty
-  const dash = base.split(/\s[-–—]\s/);
-  if (dash.length >= 2) { track.artist = dash[0].trim(); track.title = dash.slice(1).join(' - ').trim(); }
+  // "Artist - Title.mp3" fallback when tags are empty, without what download sites add (ids, «zaycev.net»…)
+  const { cleanName, stripJunk } = await names();
+  Object.assign(track, cleanName(base));
   try {
     const meta = await mm.parseFile(filePath, { duration: true, skipCovers: false });
     const c = meta.common;
-    if (c.title) track.title = c.title;
-    if (c.artist) track.artist = c.artist;
+    // sites write their name into the tags too: «Apoplexy (muzmo.ru)», «www.zaycev.net»
+    if (c.title && stripJunk(c.title)) track.title = stripJunk(c.title);
+    if (c.artist && stripJunk(c.artist)) track.artist = stripJunk(c.artist);
     if (c.album) track.album = c.album;
     if (c.bpm) track.bpm = Math.round(c.bpm);
     track.duration = meta.format.duration || 0;
@@ -221,6 +231,34 @@ async function collectAudio(paths, depth = 0, seen = new Set(), out = []) {
     } catch { /* skip */ }
   }
   return out;
+}
+
+/**
+ * "Find music on this computer": the usual places (Music, Downloads, Desktop, OneDrive) plus top-level
+ * folders with a musical name on every drive. Returns folders that hold audio, biggest first.
+ */
+async function findMusicFolders() {
+  const cand = new Set();
+  const add = (p) => { try { if (p && fs.existsSync(p)) cand.add(path.normalize(p)); } catch {} };
+  for (const k of ['music', 'downloads', 'desktop']) { try { add(app.getPath(k)); } catch {} }
+  const home = app.getPath('home');
+  for (const n of ['Music', 'Музыка']) add(path.join(home, 'OneDrive', n));
+  const NAME = /music|муз|mp3|flac|audio|аудио|песни|songs|треки|tracks/i;
+  // an empty card reader or a sleeping network drive must not stall the scan
+  const quick = (p) => Promise.race([fsp.readdir(p, { withFileTypes: true }), new Promise((_, rej) => setTimeout(() => rej(new Error('slow')), 2500))]);
+  for (const letter of 'CDEFGHIJKLMNOPQRSTUVWXYZ') {
+    let entries;
+    try { entries = await quick(letter + ':\\'); } catch { continue; }
+    for (const e of entries) if (e.isDirectory() && NAME.test(e.name)) add(path.join(letter + ':\\', e.name));
+  }
+  // a folder inside another candidate is already covered by it
+  const roots = [...cand].sort((a, b) => a.length - b.length).filter((p, i, all) => !all.slice(0, i).some((q) => isInside(q, p)));
+  const out = [];
+  for (const dir of roots) {
+    const files = await collectAudio([dir]);
+    if (files.length) out.push({ path: dir, count: files.length });
+  }
+  return out.sort((a, b) => b.count - a.count);
 }
 
 /* ------------------------------------- tray ------------------------------------- */
@@ -367,6 +405,26 @@ function registerIpc() {
     await fsp.copyFile(src, dest);
     return dest;
   });
+  ipcMain.handle('library:scan', () => findMusicFolders());
+  // lyrics: .lrc next to the file, then the tags, then (if allowed) LRCLIB
+  ipcMain.handle('lyrics:get', (_e, t, opts) => {
+    if (!t || typeof t !== 'object') return null;
+    const str = (v) => String(v || '').slice(0, 1000);
+    return lyrics.get({ path: str(t.path), title: str(t.title), artist: str(t.artist), album: str(t.album), duration: Number(t.duration) || 0 },
+      { online: !!(opts && opts.online) });
+  });
+  ipcMain.handle('lyrics:save', (_e, p, text) => lyrics.save(String(p || ''), String(text || '')));
+  // asked only while the lyrics tab waits for text the user went to copy; long or empty clips are not passed on
+  ipcMain.handle('lyrics:clipboard', () => { const s = clipboard.readText() || ''; return s.length > 20000 ? '' : s; });
+  // tags and artwork from MusicBrainz / Cover Art Archive for one track (only its names are sent)
+  ipcMain.handle('meta:repair', async (_e, t) => {
+    if (!t || typeof t !== 'object') return null;
+    // names imported before the junk filter existed may still say «1546698_Apoplexy»
+    const { stripJunk } = await names();
+    const str = (v) => stripJunk(String(v || '').slice(0, 300));
+    return musicbrainz.repair({ title: str(t.title), artist: str(t.artist), duration: Number(t.duration) || 0 },
+      { wantCover: !!t.wantCover, wantGenre: !!t.wantGenre });
+  });
   ipcMain.handle('library:exists', async (_e, p) => fs.existsSync(p));
   ipcMain.handle('library:existsMany', async (_e, paths) => {
     if (!Array.isArray(paths)) return [];
@@ -437,6 +495,14 @@ function registerIpc() {
   ipcMain.handle('web:open', (_e, url) => {
     if (/^https:\/\//i.test(url)) shell.openExternal(url);
   });
+  // playlist import: only track lists are read (title, artist, album, length); nothing is downloaded
+  ipcMain.handle('import:deezer', (_e, url) => importDeezer(url));
+  ipcMain.handle('spotify:status', (_e, clientId) => spotify.status(clientId));
+  ipcMain.handle('spotify:login', (_e, clientId) => spotify.login(clientId));
+  ipcMain.handle('spotify:cancel', () => spotify.cancelLogin());
+  ipcMain.handle('spotify:logout', () => spotify.logout());
+  ipcMain.handle('spotify:playlists', () => spotify.playlists());
+  ipcMain.handle('spotify:tracks', (_e, id) => spotify.playlistTracks(id));
   ipcMain.handle('app:lang', (_e, l) => { setLang(l); buildTrayMenu(); updateThumbar(); });
   ipcMain.handle('app:paths', () => ({ downloads: downloadsDir(), userData: userDir() }));
 
@@ -480,6 +546,9 @@ else {
     nativeTheme.themeSource = 'light';
     registerProtocol();
     loadPrefs();
+    spotify.init({ userDir, openExternal: (u) => shell.openExternal(u), safeStorage });
+    musicbrainz.init({ version: app.getVersion(), coversDir });
+    lyrics.init({ version: app.getVersion(), userDir, audioExt: AUDIO_EXT, names, identify: musicbrainz.identify });
     registerIpc();
     createWindow();
     createTray();
