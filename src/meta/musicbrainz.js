@@ -77,7 +77,7 @@ function releaseRank(r) {
   let s = 0;
   if (r.status === 'Official') s += .4; else if (r.status === 'Bootleg') s -= .4;
   if (rg['primary-type'] === 'Album') s += .3; else if (rg['primary-type'] === 'EP' || rg['primary-type'] === 'Single') s += .15;
-  if (!sec.length) s += .3; else if (sec.includes('Live') || sec.includes('Compilation') || sec.includes('DJ-mix')) s -= .2;
+  if (!sec.length) s += .3; else if (['Live', 'Compilation', 'DJ-mix', 'Soundtrack', 'Remix'].some((k) => sec.includes(k))) s -= .2;
   return s;
 }
 function bestRelease(releases) {

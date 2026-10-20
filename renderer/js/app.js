@@ -16,6 +16,7 @@ import { search as fuzzySearch } from './fuzzy.js';
 import { createPlaylistImport } from './playlist-import.js';
 import { createLibraryRepair } from './library-repair.js';
 import { createAppearance } from './appearance.js';
+import { createTrim } from './trim.js';
 import { createTour, WELCOME } from './tour.js';
 import { captureState, describe, renderProcessed, encodeWav, encodeMp3 } from './exporter.js';
 import { ICON } from './icons.js';
@@ -29,7 +30,8 @@ const DEFAULTS = {
   pitch: { semi: 0, cents: 0, vinyl: false, on: true },
   ambient: { depth: .7, sens: .5, master: .8, levels: { rain: .55, ocean: .55, vinyl: .45, fire: .5, train: .5 } },
   eq: { on: true, gains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], pre: 0, preset: 'flat' },
-  layout: null, bgAnalyze: true, exportFormat: 'mp3', exportAdd: true, spotifyClientId: '', tourDone: false, showcaseDone: false, lyricsOnline: true,
+  layout: null, bgAnalyze: true, exportFormat: 'mp3', exportAdd: true, spotifyClientId: '', tourDone: false, crossfade: 0, normalize: true, outputId: '', globalKeys: true, miniTop: true, discord: false, discordId: '',
+  fx: { tempo: 1, reverb: { on: false, room: 'hall', mix: .3 } }, showcaseDone: false, lyricsOnline: true,
   look: { accent: 'theme', fx: 'live', blur: 'normal', bgList: [], bgActive: null, bgDim: 'soft' }
 };
 const THEMES = [
@@ -48,7 +50,7 @@ const S = {
 };
 const engine = new AudioEngine();
 const ambient = new Ambient(engine);
-let viz, wave, tools, layout, bg, deep, visual, shapes, plImport, tour, repair, look;
+let viz, wave, tools, layout, bg, deep, visual, shapes, plImport, tour, repair, look, trim;
 const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 const preview = new Audio();
 
@@ -155,7 +157,7 @@ function removeFromLibrary(ids) {
   index();
   if (curGone) {
     const was = engine.playing;
-    engine.pause(); engine.audio.removeAttribute('src'); engine.audio.load();
+    engine.unload();
     S.current = null;
     if (before < S.queue.length) { S.qi = before; loadCurrent(was); } // the music simply moves on
     else { S.qi = S.queue.length ? S.queue.length - 1 : -1; if (S.qi >= 0) loadCurrent(false); else clearNowPlaying(); }
@@ -219,7 +221,17 @@ async function playFrom(list, idx) {
   await loadCurrent(true);
 }
 let loadFails = 0;
-async function loadCurrent(autoplay = true, at = 0) {
+/**
+ * Loudness normalisation: every track is brought to about −14 LUFS (streaming level), never pushed
+ * past its own peak. Tracks not analysed yet play as they are; the gain glides in once measured.
+ */
+function normGain(t) {
+  if (!S.settings.normalize || !t || t.lufs == null || !isFinite(t.lufs)) return 0;
+  let db = clamp(-14 - t.lufs, -12, 8);
+  if (t.peakDb != null && isFinite(t.peakDb)) db = Math.min(db, -t.peakDb - 1);
+  return Math.round(db * 10) / 10;
+}
+async function loadCurrent(autoplay = true, at = 0, crossfade = 0) {
   const t = T(S.queue[S.qi]);
   if (!t) return;
   S.current = t; t.lastPlayed = Date.now();
@@ -228,7 +240,7 @@ async function loadCurrent(autoplay = true, at = 0) {
   renderUpNext();
   wave.set(t.peaks || null);
   $('#seek').classList.toggle('has-wave', !!t.peaks);
-  try { await engine.load(bridge.mediaUrl(t.path), { autoplay, at }); loadFails = 0; }
+  try { await engine.load(bridge.mediaUrl(t.path), { autoplay, at, crossfade, gainDb: normGain(t) }); loadFails = 0; }
   catch (e) {
     if (e && e.name === 'AbortError') return; // superseded by another track
     toast(tr('toast.openFail', { title: t.title }));
@@ -240,13 +252,13 @@ async function loadCurrent(autoplay = true, at = 0) {
   deep && deep.update();
   save();
 }
-function next(auto = false) {
+function next(auto = false, crossfade = 0) {
   if (!S.queue.length) return;
   if (auto && S.repeat === 'one') { engine.seek(0); engine.play(); return; }
   if (S.qi < S.queue.length - 1) S.qi++;
   else if (S.repeat === 'all' || !auto) S.qi = 0;
   else { engine.pause(); engine.seek(0); return; }
-  loadCurrent(true);
+  loadCurrent(true, 0, crossfade);
 }
 function prev() {
   if (engine.time > 3 || !S.queue.length) return engine.seek(0);
@@ -301,7 +313,7 @@ function runAnalysis(t) {
     for (const k of ANALYSIS_FIELDS) t[k] = res[k];
     t.av = res.av;
     save();
-    if (S.current === t) { wave.set(t.peaks); $('#seek').classList.add('has-wave'); renderBadges(); setBeat(t); }
+    if (S.current === t) { wave.set(t.peaks); $('#seek').classList.add('has-wave'); renderBadges(); setBeat(t); engine.setTrackGain(normGain(t)); }
     const row = $(`.row[data-id="${t.id}"] .r-bpm`);
     if (row && t.bpm) row.innerHTML = `<b>${Math.round(t.bpm)}</b>`;
     deep && deep.update();
@@ -836,6 +848,27 @@ function editTrack(t) {
 
 /* ------------------------- export processed track ------------------------- */
 let exporting = null;
+/** a file written from a track (a fragment): into the library, linked to its source; toast with Play / Show */
+async function addExported(fp, src, title, tag) {
+  let added = null;
+  if (S.settings.exportAdd) {
+    const [nt] = await bridge.library.probe([fp]);
+    if (nt) {
+      const ex = T(nt.id);
+      added = ex || nt;
+      if (!ex) { nt.title = title; nt.addedAt = Date.now(); S.tracks.push(nt); }
+      Object.assign(added, { derivedFrom: src.id, fxTag: tag });
+      if (!added.cover && src.cover) { added.cover = src.cover; added.customCover = true; }
+      if (!added.artist && src.artist) added.artist = src.artist;
+      index(); save(); renderSidebar(); if (['library', 'recent'].includes(S.view.type)) render(false);
+    }
+  }
+  const acts = h('div', { class: 'tchips' });
+  if (added) acts.append(h('button', { class: 'tchip', onClick: () => playIds([added.id]) }, tr('ex.play')));
+  if (bridge.isElectron) acts.append(h('button', { class: 'tchip', onClick: () => bridge.library.reveal(fp) }, tr('m.reveal')));
+  toast(h('span', {}, tr('tm.saved'), ' ', h('small', {}, String(fp).split(/[\\/]/).pop())), { timeout: 9000, actions: acts });
+}
+
 function openExport(t = S.current) {
   if (!t) { toast(tr('ex.noTrack')); return; }
   if (exporting) { toast(tr('ex.busy')); return; }
@@ -1100,6 +1133,7 @@ function trackMenu(x, y, ids, opts = {}, idx) {
   if (opts.queue) items.push('-', { text: tr('m.fromQueue'), onClick: () => { const cur = S.queue[S.qi]; S.queue = S.queue.filter((id, i) => !(ids.includes(id) && id !== cur)); S.qi = S.queue.indexOf(cur); save(); renderUpNext(); render(false); } });
   items.push('-');
   if (one) items.push({ text: tr('m.export'), onClick: () => openExport(one) });
+  if (one && bridge.isElectron) items.push({ text: tr('m.trim'), onClick: () => trim.open(one) });
   if (one) items.push({ text: tr('m.edit'), onClick: () => editTrack(one) });
   if (one) items.push({ text: tr('m.cover'), onClick: () => setTrackCover(one) });
   if (one && one.customCover) items.push({ text: tr('m.coverRestore'), onClick: () => { one.cover = one.origCover || null; one.customCover = false; coverChanged(one); } });
@@ -1123,7 +1157,7 @@ async function sleepFade() {
 function bindMedia() {
   const push = () => {
     const t = S.current;
-    bridge.media && bridge.media.state({ title: t ? t.title : '', artist: t ? artistOf(t) : '', playing: engine.playing, hasTrack: !!t });
+    bridge.media && bridge.media.state({ title: t ? t.title : '', artist: t ? artistOf(t) : '', playing: engine.playing, hasTrack: !!t, position: engine.time, duration: engine.duration });
     const ms = navigator.mediaSession;
     if (ms && t) {
       // Windows shows this in its media flyout and on the lock screen; hardware media keys work too
@@ -1148,6 +1182,7 @@ function bindMedia() {
     else if (cmd === 'prev') prev();
     else if (cmd === 'mute') { engine.setMuted(!engine.muted); bindDeck.paintVol(); }
     else if (cmd.startsWith('vol:')) { engine.setMuted(false); bindDeck.setVol(+cmd.slice(4) / 100); }
+    else if (cmd === 'volUp' || cmd === 'volDown') { engine.setMuted(false); bindDeck.setVol(clamp(engine.volume + (cmd === 'volUp' ? .05 : -.05), 0, 1)); }
     else if (cmd === 'sleep') sleepFade();
     else if (cmd.startsWith('sleepMode:')) { sleepAtEnd = cmd.endsWith('end'); toast(tr('sleep.' + cmd.slice(10))); }
   });
@@ -1364,6 +1399,12 @@ function bindDeck() {
   $('#prevBtn').onclick = prev;
   $('#shuffleBtn').onclick = () => { S.shuffle = !S.shuffle; applyShuffle(S.shuffle); syncModeBtns(); renderUpNext(); save(); if (S.view.type === 'queue') render(false); };
   $('#repeatBtn').onclick = () => { S.repeat = { off: 'all', all: 'one', one: 'off' }[S.repeat]; syncModeBtns(); save(); };
+  // crossfade: the next track starts before this one ends (not on «repeat one», not when sleeping after this track)
+  engine.addEventListener('nearend', () => {
+    if (!S.settings.crossfade || sleepAtEnd || S.repeat === 'one' || !S.queue.length) return;
+    if (S.qi >= S.queue.length - 1 && S.repeat !== 'all') return;
+    next(true, S.settings.crossfade);
+  });
   engine.addEventListener('ended', () => {
     if (sleepAtEnd) { sleepAtEnd = false; bridge.media && bridge.media.sleepEnded && bridge.media.sleepEnded(); engine.seek(0); toast(tr('sleep.done')); return; }
     next(true);
@@ -1551,6 +1592,98 @@ function dlRow(paths) {
     h('div', { class: 'set-acts' }, reset, open, change));
 }
 
+/* ------------------------------ mini player ------------------------------ */
+/** the strip shown while the window is the small always-on-top player */
+function buildMini() {
+  if ($('#miniBar')) return;
+  const ic = (d) => '<svg viewBox="0 0 24 24"><path class="fill" d="' + d + '"/></svg>';
+  const bar = h('div', { id: 'miniBar', class: 'mini-bar' },
+    h('div', { class: 'mini-cover', id: 'miniCover' }),
+    h('div', { class: 'mini-meta' }, h('b', { id: 'miniTitle' }), h('small', { id: 'miniArtist' }), h('div', { class: 'mini-prog' }, h('i', { id: 'miniProg' }))),
+    h('div', { class: 'mini-ctl' },
+      h('button', { class: 'tbtn', title: tr('tr.prev'), html: ic('M18 6v12l-8.5-6zM6 6h2.2v12H6z'), onClick: () => prev() }),
+      h('button', { class: 'tbtn mini-play', id: 'miniPlay', title: tr('tr.play'), onClick: () => togglePlay() }),
+      h('button', { class: 'tbtn', title: tr('tr.next'), html: ic('M6 6v12l8.5-6zM15.8 6H18v12h-2.2z'), onClick: () => next() })),
+    h('button', { class: 'mini-back', title: tr('mini.back'), 'aria-label': tr('mini.back'), html: '<svg viewBox="0 0 12 12"><path d="M7 2.5h2.5V5M5 9.5H2.5V7M9.5 2.5 6.6 5.4M2.5 9.5l2.9-2.9"/></svg>', onClick: () => bridge.win.mini(false) }));
+  document.body.append(bar);
+  const tick = () => {
+    requestAnimationFrame(tick);
+    if (!document.body.classList.contains('mini')) return;
+    const t = S.current, d = engine.duration;
+    $('#miniProg').style.transform = 'scaleX(' + (d ? engine.time / d : 0) + ')';
+    if (bar.dataset.id !== (t && t.id) || bar.dataset.p !== String(engine.playing)) {
+      bar.dataset.id = t ? t.id : ''; bar.dataset.p = String(engine.playing);
+      $('#miniCover').style.background = t ? art(t) : '';
+      $('#miniTitle').textContent = t ? t.title : tr('np.none');
+      $('#miniArtist').textContent = t ? artistOf(t) : '';
+      $('#miniPlay').innerHTML = engine.playing ? ic('M6.5 5h3.8v14H6.5zM13.7 5h3.8v14h-3.8z') : ic('M7 4.8v14.4L19 12z');
+    }
+  };
+  requestAnimationFrame(tick);
+}
+
+/** Settings → «Воспроизведение»: crossfade, loudness, output device, global hotkeys */
+async function playbackRows(tg) {
+  const xf = h('div', { class: 'seg' }, ...[[0, tr('pb.off')], [3, '3 ' + tr('pb.s')], [6, '6 ' + tr('pb.s')], [10, '10 ' + tr('pb.s')]].map(([v, l]) => {
+    const b = h('button', { class: (S.settings.crossfade || 0) === v ? 'on' : '' }, l);
+    b.onclick = () => { S.settings.crossfade = v; engine.crossfade = v; save(); xf.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b)); };
+    return b;
+  }));
+  const outs = await engine.outputs();
+  const sel = h('select', { class: 'set-input set-select' },
+    h('option', { value: '' }, tr('pb.outDefault')),
+    ...outs.filter((d) => d.deviceId && d.deviceId !== 'default' && d.deviceId !== 'communications').map((d) => h('option', { value: d.deviceId }, d.label || tr('pb.outUnnamed'))));
+  sel.value = S.settings.outputId || '';
+  sel.onchange = async () => { const ok = await engine.setOutput(sel.value); if (ok) { S.settings.outputId = sel.value; save(); toast(tr('pb.outDone')); } else { sel.value = S.settings.outputId || ''; toast(tr('pb.outFail')); } };
+  return [
+    h('div', { class: 'set-sec' }, tr('pb.title')),
+    h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('pb.xf')), h('small', {}, tr('pb.xfD'))), xf),
+    h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('pb.norm')), h('small', {}, tr('pb.normD'))),
+      tg(S.settings.normalize, (v) => { S.settings.normalize = v; save(); engine.setTrackGain(normGain(S.current)); })),
+    h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('pb.out')), h('small', {}, tr('pb.outD'))), sel),
+    ...(bridge.app.globalKeys ? [h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('pb.keys')), h('small', {}, tr('pb.keysD'))),
+      tg(S.settings.globalKeys, async (v) => { S.settings.globalKeys = v; save(); const busy = await bridge.app.globalKeys(v); if (busy && busy.length) toast(tr('pb.keysBusy', { keys: busy.join(', ') })); }))] : []),
+    ...(bridge.win.mini ? [h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('pb.mini')), h('small', {}, tr('pb.miniD'))),
+      tg(S.settings.miniTop, (v) => { S.settings.miniTop = v; save(); if (document.body.classList.contains('mini')) bridge.win.mini(true, v); }))] : [])
+  ];
+}
+
+/* ------------------------------ updates ------------------------------ */
+let updState = null, updToast = null;
+function onUpdate(st) {
+  updState = st;
+  const row = $('#updStatus'); if (row) row.replaceWith(updStatusEl());
+  if (st.status === 'available' && !updToast) {
+    const acts = h('div', { class: 'tchips' });
+    if (st.canInstall !== false) acts.append(h('button', { class: 'tchip', onClick: () => { bridge.update.download(); updToast && updToast.close(); updToast = null; toast(tr('up.downloading')); } }, tr('up.get')));
+    else acts.append(h('button', { class: 'tchip', onClick: () => bridge.web.open('https://github.com/infallibl3/soft-deep-sound/releases/latest') }, tr('up.page')));
+    updToast = toast(h('span', {}, tr('up.available', { v: st.version })), { timeout: 0, actions: acts });
+  }
+  if (st.status === 'ready') toast(h('span', {}, tr('up.ready', { v: st.version })), { timeout: 0, actions: h('div', { class: 'tchips' }, h('button', { class: 'tchip', onClick: () => bridge.update.install() }, tr('up.restart'))) });
+}
+function updStatusEl() {
+  const st = updState || {};
+  const txt = { checking: tr('up.checking'), latest: tr('up.latest'), available: tr('up.available', { v: st.version }), downloading: tr('up.progress', { p: st.percent || 0 }),
+    ready: tr('up.ready', { v: st.version }), error: tr('up.error'), dev: tr('up.dev') }[st.status] || '';
+  return h('small', { id: 'updStatus', class: 'upd-status' }, txt);
+}
+function updateRows() {
+  if (!bridge.update) return [];
+  const btn = h('button', { class: 'chip-btn' }, tr('up.check'));
+  btn.onclick = async () => { btn.disabled = true; onUpdate(await bridge.update.check()); btn.disabled = false; };
+  const did = h('input', { class: 'set-input mono', placeholder: tr('ds.idPh'), value: S.settings.discordId || '', spellcheck: 'false' });
+  did.onkeydown = (e) => { if (e.key === 'Escape') { did.blur(); closeModal(); return; } e.stopPropagation(); };
+  const applyDiscord = async () => { const st = await bridge.discord.set(S.settings.discord, S.settings.discordId); return st; };
+  did.onchange = () => { S.settings.discordId = did.value.trim(); save(); applyDiscord(); };
+  const tgl = h('button', { class: 'toggle' + (S.settings.discord ? ' on' : '') });
+  tgl.onclick = () => { S.settings.discord = !S.settings.discord; tgl.classList.toggle('on', S.settings.discord); save(); if (S.settings.discord && !/^\d{15,22}$/.test(S.settings.discordId || '')) toast(tr('ds.needId')); applyDiscord(); };
+  return [
+    h('div', { class: 'set-sec' }, tr('up.sec')),
+    h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('up.title', { v: (updState && updState.current) || '' })), updStatusEl()), btn),
+    h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('ds.title')), h('small', {}, tr('ds.desc'))), h('div', { class: 'set-acts' }, did, tgl))
+  ];
+}
+
 async function openSettings() {
   const paths = await bridge.app.paths();
   const prefs = bridge.app.prefs ? await bridge.app.prefs() : null;
@@ -1564,6 +1697,8 @@ async function openSettings() {
       h('div', { class: 'seg' }, ...LANGS.map(([k, name]) => h('button', { class: getLang() === k ? 'on' : '', onClick: () => { applyLang(k); openSettings(); } }, name)))),
     h('div', { class: 'set-row', style: { display: 'block' } }, h('b', { style: { marginBottom: '10px' } }, tr('set.theme')), themeCards()),
     look.panel(() => S.current),
+    ...(await playbackRows(tg)),
+    ...updateRows(),
     h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('set.layout')), h('small', {}, tr('set.layoutD'))), h('button', { class: 'chip-btn', onClick: () => layout.reset() }, tr('set.reset'))),
     h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('set.chime')), h('small', {}, tr('set.chimeD'))), tg(S.settings.chime, (v) => { S.settings.chime = v; save(); })),
     h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('set.bg')), h('small', {}, tr('set.bgD'))), tg(S.settings.bgAnalyze, (v) => { S.settings.bgAnalyze = v; save(); if (v) backgroundAnalyze(); })),
@@ -1673,6 +1808,7 @@ function bindChrome() {
       case 'KeyE': tool('eq'); break;
       case 'KeyF': if (visual.isOpen) visual.close(); deep.toggle(); break;
       case 'KeyL': if (visual.isOpen) visual.close(); deep.toggleLyrics(); break;
+      case 'KeyK': if (visual.isOpen) visual.close(); deep.toggleTv(); break;
       case 'KeyV': if (deep.isOpen) deep.close(); visual.isOpen ? visual.close() : visual.show(); break;
       case 'KeyD': switchSoftDeep(); break;
     }
@@ -1697,6 +1833,7 @@ async function boot() {
     shapes = new Shapes($('#shapes'), { isPlaying: () => engine.playing, energy: () => Math.min(1, viz.bass * 1.4) });
     bg.gl = true; bg.resize();
   } catch (e) { console.warn('shapes off:', e.message); $('#shapes').remove(); }
+  trim = createTrim({ S, bridge, engine, art, artistOf, save, addExported });
   look = createAppearance({ S, save, bridge, toast, hslToRgb, rgbToHsl, coverColor, onChange: refreshCanvases,
     energy: () => (viz && engine.playing ? Math.min(1, viz.bass * 1.4) : 0) });
   layout = new Layout(S.settings, save);
@@ -1708,6 +1845,7 @@ async function boot() {
     ensureFormat: (t) => ensureFormat(t),
     onSimilar: (t) => { deep.close(); setTimeout(() => setView({ type: 'similar', id: t.id }), 420); },
     getLyrics: (t, force, skipLocal) => getLyrics(t, force, skipLocal),
+    setLyricsOffset: (t, sec) => { t.lyricsOffset = sec || undefined; save(); },
     saveLyrics: bridge.lyrics && bridge.lyrics.save ? async (t, text, replace) => {
       let r;
       try { r = await bridge.lyrics.save(t.path, text, replace); }
@@ -1741,6 +1879,15 @@ async function boot() {
   renderSidebar(); render(true); renderUpNext();
   await engine.ready;
   tools.restore();
+  engine.crossfade = S.settings.crossfade || 0;
+  if (S.settings.globalKeys && bridge.app.globalKeys) bridge.app.globalKeys(true);
+  if (bridge.update) { bridge.update.onState(onUpdate); bridge.update.get().then((st) => { updState = st; }); }
+  if (bridge.discord && S.settings.discord) bridge.discord.set(true, S.settings.discordId);
+  if (bridge.win.mini) {
+    $('#miniBtn').onclick = () => { buildMini(); bridge.win.mini(true, S.settings.miniTop); };
+    bridge.win.onMini((on) => { if (on) buildMini(); document.body.classList.toggle('mini', on); if (on && deep.isOpen) deep.close(); });
+  } else $('#miniBtn').remove();
+  if (S.settings.outputId) engine.setOutput(S.settings.outputId).then((ok) => { if (!ok) { S.settings.outputId = ''; save(); } });
   bindMedia();
   if (bridge.app.onVisible) bridge.app.onVisible((v) => document.documentElement.classList.toggle('win-hidden', !v));
 

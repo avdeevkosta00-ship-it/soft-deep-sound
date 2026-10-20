@@ -52,6 +52,7 @@ contextBridge.exposeInMainWorld('sds', {
   },
   app: {
     paths: () => ipcRenderer.invoke('app:paths'),
+    globalKeys: (on) => ipcRenderer.invoke('keys:global', on),
     pickDownloads: () => ipcRenderer.invoke('downloads:pick'), resetDownloads: () => ipcRenderer.invoke('downloads:reset'), openDownloads: () => ipcRenderer.invoke('downloads:open'), setLang: (l) => ipcRenderer.invoke('app:lang', l),
     prefs: () => ipcRenderer.invoke('app:prefs'), pendingFiles: () => ipcRenderer.invoke('app:pendingFiles'),
     onVisible: (cb) => ipcRenderer.on('win:visible', (_e, v) => cb(v)), setPref: (key, value) => ipcRenderer.invoke('app:setPref', { key, value })
@@ -61,10 +62,18 @@ contextBridge.exposeInMainWorld('sds', {
     sleepEnded: () => ipcRenderer.send('sleep:ended'),
     onCommand: (cb) => ipcRenderer.on('media:cmd', (_e, cmd) => cb(cmd))
   },
+  update: {
+    get: () => ipcRenderer.invoke('update:get'), check: () => ipcRenderer.invoke('update:check'),
+    download: () => ipcRenderer.invoke('update:download'), install: () => ipcRenderer.send('update:install'),
+    onState: (cb) => ipcRenderer.on('update:state', (_e, st) => cb(st))
+  },
+  discord: { set: (on, id) => ipcRenderer.invoke('discord:set', on, id) },
   win: {
     min: () => ipcRenderer.send('win:min'),
     max: () => ipcRenderer.send('win:max'),
     close: () => ipcRenderer.send('win:close'),
+    mini: (on, top) => ipcRenderer.send('win:mini', on, top),
+    onMini: (cb) => ipcRenderer.on('win:mini', (_e, on) => cb(on)),
     onState: (cb) => ipcRenderer.on('win:state', (_e, s) => cb(s))
   },
   onOpenFiles: (cb) => ipcRenderer.on('open-files', (_e, files) => cb(files))

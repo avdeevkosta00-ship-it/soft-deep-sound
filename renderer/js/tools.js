@@ -1,5 +1,5 @@
 /**
- * Tool rack: Sound Pitcher, Ambient Generator, Equalizer.
+ * Tool rack: Sound Pitcher, Ambient Generator, Equalizer, Space (tempo + reverb).
  * Opens as a drawer above the deck (no separate windows); each tool is a "plugin" chassis.
  */
 import { $, $$, h, makeFader, makeVFader, makeMiniRange, clamp, dragValue } from './ui.js';
@@ -79,6 +79,8 @@ export class Tools {
     Object.assign(this.engine, { semitones: p.semi, cents: p.cents, vinyl: p.vinyl, pitchOn: p.on });
     this.engine.applyPitch();
     this.engine.eqOn = q.on; this.engine.setEq(q.gains, q.pre);
+    const fx = this.settings.fx || { tempo: 1, reverb: { on: false, room: 'hall', mix: .3 } };
+    this.engine.setTempo(fx.tempo); this.engine.setReverb(fx.reverb);
     Object.assign(this.ambient, { depth: a.depth, sensitivity: a.sens });
     this.ambient.setMaster(a.master);
     for (const { key } of LAYERS) this.ambient.layers[key].level = a.levels[key] ?? .5;
@@ -110,7 +112,8 @@ export class Tools {
     return h('div', { class: 'rack-menu' },
       tile('pitch', ICON.pitch, t('tl.pitchT'), t('tl.pitchD'), 0),
       tile('ambient', ICON.ambient, t('tl.ambT'), t('tl.ambD'), 1),
-      tile('eq', ICON.eq, t('tl.eqT'), t('tl.eqD'), 2));
+      tile('eq', ICON.eq, t('tl.eqT'), t('tl.eqD'), 2),
+      tile('space', ICON.ambient, t('tl.spT'), t('tl.spD'), 3));
   }
 
   leds() {
@@ -118,7 +121,8 @@ export class Tools {
     const state = {
       pitch: e.pitchOn && (e.semitones !== 0 || e.cents !== 0),
       ambient: this.ambient.anyOn,
-      eq: e.eqOn && (e.eqGains.some((g) => g !== 0) || e.eqPre !== 0)
+      eq: e.eqOn && (e.eqGains.some((g) => g !== 0) || e.eqPre !== 0),
+      space: e.tempo !== 1 || e.reverb.on
     };
     for (const [k, on] of Object.entries(state)) {
       $(`[data-led="${k}"]`)?.classList.toggle('on', on);
@@ -132,6 +136,7 @@ export class Tools {
     this.settings.pitch = { semi: e.semitones, cents: e.cents, vinyl: e.vinyl, on: e.pitchOn };
     this.settings.ambient = { depth: a.depth, sens: a.sensitivity, master: a.master, levels: Object.fromEntries(LAYERS.map(({ key }) => [key, a.layers[key].level])) };
     this.settings.eq = { on: e.eqOn, gains: [...e.eqGains], pre: e.eqPre, preset: this.settings.eq.preset };
+    this.settings.fx = { tempo: e.tempo, reverb: { ...e.reverb } };
     this.save();
   }
 
@@ -291,6 +296,43 @@ export class Tools {
     };
     new ResizeObserver(drawCurve).observe(canvas);
     c.drawCurve = drawCurve;
+    return c;
+  }
+
+  /* ------------------------------ SPACE: tempo + reverb ------------------------------ */
+  spacePanel() {
+    const e = this.engine;
+    const c = chassis({
+      title: t('sp.title'), sub: t('sp.sub'), code: 'FX·04', powered: e.reverb.on,
+      onPower: (on) => { e.setReverb({ on }); roomSeg.classList.toggle('off', !on); this.leds(); this.persist(); }
+    });
+    // tempo: speed without changing the key
+    const big = h('div', { class: 'big' }), note = h('div', { class: 'interval' });
+    const paint = () => {
+      big.innerHTML = `<b>×${e.tempo.toFixed(2)}</b>`;
+      note.textContent = e.tempo === 1 ? t('sp.tempo1') : e.tempo < 1 ? t('sp.slower') : t('sp.faster');
+    };
+    const lcd = h('div', { class: 'lcd pitch-lcd' }, h('div', { class: 'lbl' }, t('sp.tempo')), big, note);
+    const tempo = makeFader({
+      min: 50, max: 150, step: 1, value: Math.round(e.tempo * 100), def: 100, detent: 100,
+      majors: [50, 75, 100, 125, 150], minors: Array.from({ length: 21 }, (_, i) => 50 + i * 5),
+      labels: [[50, '×0.5'], [75, '×0.75'], [100, '×1'], [125, '×1.25'], [150, '×1.5']],
+      onInput: (v) => { e.setTempo(v / 100); paint(); this.leds(); this.persist(); }
+    });
+    // reverb: room, then how much of it
+    const roomSeg = h('div', { class: 'seg' + (e.reverb.on ? '' : ' off') }, ...['room', 'hall', 'cathedral'].map((k) => {
+      const b = h('button', { class: e.reverb.room === k ? 'on' : '', dataset: { k } }, t('sp.r.' + k));
+      b.onclick = () => { e.setReverb({ room: k, on: true }); c.power.classList.add('on'); roomSeg.classList.remove('off');
+        roomSeg.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b)); this.leds(); this.persist(); };
+      return b;
+    }));
+    const mix = makeMiniRange({ label: t('sp.mix'), value: e.reverb.mix, onInput: (v) => { e.setReverb({ mix: v }); this.persist(); } });
+    const reset = () => { tempo.set(100); e.setTempo(1); paint(); this.leds(); this.persist(); };
+    c.body.append(
+      h('div', { class: 'pitch-grid' }, lcd, h('div', {}, tempo.el)),
+      h('div', { class: 'plug-row' }, h('span', { class: 'sp-lbl' }, t('sp.reverb')), roomSeg, h('div', { class: 'sp-mix' }, mix.el), h('span', { class: 'grow' }),
+        h('button', { class: 'chip-btn', onClick: reset }, t('sp.reset'))));
+    paint();
     return c;
   }
 

@@ -1,7 +1,7 @@
 {
   "name": "soft-deep-sound",
   "productName": "Soft&Deep Sound",
-  "version": "1.10.1",
+  "version": "1.11.0",
   "description": "Soft&Deep Sound — desktop music player",
   "main": "main.js",
   "author": "Konstantin",
@@ -13,6 +13,8 @@
     "dist:dir": "electron-builder --win dir --publish never"
   },
   "dependencies": {
+    "discord-rpc": "^4.0.1",
+    "electron-updater": "^6.8.9",
     "music-metadata": "7.14.0"
   },
   "devDependencies": {
@@ -63,6 +65,17 @@
     },
     "portable": {
       "artifactName": "SoftDeepSound-Portable-${version}.${ext}"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "infallibl3",
+        "repo": "soft-deep-sound"
+      }
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/infallibl3/soft-deep-sound.git"
   }
 }

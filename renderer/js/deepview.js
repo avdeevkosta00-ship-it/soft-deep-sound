@@ -9,7 +9,7 @@ import { t as tr, tn } from './i18n.js';
 import { ICON } from './icons.js';
 import { WaveSeek } from './visualizer.js';
 import { findSimilar, analyzed, quality } from './smart.js';
-import { parseLyrics, lineAt } from './lyrics.js';
+import { parseLyrics, lineAt, wordAt } from './lyrics.js';
 
 const ENTER = 'cubic-bezier(.16,.84,.24,1)', EXIT = 'cubic-bezier(.5,0,.75,.3)';
 const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -30,10 +30,34 @@ export class DeepView {
     this.setMode(this.mode === 'lyrics' ? 'info' : 'lyrics');
   }
 
+  /** seconds the lyrics are shifted for a track (+ = later) */
+  offset(t) { return (t && t.lyricsOffset) || 0; }
+
+  /** karaoke: the sung part of the current line fills in word by word */
+  followWords(idx, time) {
+    const list = this.el.querySelector('.ly-lines'), lines = this.ly.data.lines;
+    const row = list && list.children[idx], line = lines[idx];
+    if (this.kRow && this.kRow !== row) this.kRow.querySelectorAll('.ly-w').forEach((w) => w.style.removeProperty('--k'));
+    this.kRow = row;
+    if (!row || !line || !line.words) return;
+    const at = wordAt(line, time, lines[idx + 1] && lines[idx + 1].t);
+    row.querySelectorAll('.ly-w').forEach((w, i) => w.style.setProperty('--k', i < at.i ? 1 : i === at.i ? at.p.toFixed(3) : 0));
+  }
+
+  /** «на весь экран»: only the words, big, over the blurred cover — for singing along */
+  toggleTv(on) {
+    if (!this.open) { this.show('lyrics'); setTimeout(() => this.toggleTv(true), 500); return; }
+    if (this.mode !== 'lyrics') this.setMode('lyrics');
+    this.tv = on ?? !this.tv;
+    this.el.classList.toggle('ly-tv', this.tv);
+    if (this.ly) { this.ly.idx = -2; setTimeout(() => this.followLyrics(this.api.engine.time, true), 350); }
+  }
+
   setMode(mode) {
     this.mode = mode;
     if (!this.el) return;
     this.el.classList.toggle('mode-lyrics', mode === 'lyrics');
+    if (mode !== 'lyrics' && this.tv) { this.tv = false; this.el.classList.remove('ly-tv'); }
     this.el.querySelectorAll('.dv-modes button').forEach((b) => { const on = b.dataset.mode === mode; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); });
     if (mode === 'lyrics') this.loadLyrics();
   }
@@ -69,6 +93,7 @@ export class DeepView {
   }
 
   close() {
+    this.tv = false;
     if (!this.open || this.closing) return;
     const el = this.el;
     // interrupt a still-running opening animation so Esc always works
@@ -148,6 +173,7 @@ export class DeepView {
           h('section', { class: 'dv-lyrics dv-in', 'aria-live': 'off' }),
           h('div', { class: 'ly-foot dv-in' }))));
     if (this.mode === 'lyrics') el.classList.add('mode-lyrics');
+    if (this.mode === 'lyrics' && this.tv) el.classList.add('ly-tv');
     el.addEventListener('dblclick', (e) => { if (e.target.closest('.dv-cover, .dv-bg, .dv-top')) this.close(); });
     this.wave = new WaveSeek(seek.querySelector('canvas'), { onDark: true });
     this.wave.set(t.peaks || null);
@@ -206,13 +232,25 @@ export class DeepView {
     ly.data = data;
     const list = h('div', { class: 'ly-lines' + (data.synced ? ' synced' : '') });
     data.lines.forEach((l, i) => {
-      const row = h(data.synced ? 'button' : 'p', { class: 'ly-line' + (l.text ? '' : ' gap'), dataset: { i } }, l.text || (data.synced ? '♪' : ''));
-      if (data.synced) row.onclick = () => this.api.engine.seek(l.t);
+      const row = h(data.synced ? 'button' : 'p', { class: 'ly-line' + (l.text ? '' : ' gap') + (l.words ? ' kara' : ''), dataset: { i } },
+        ...(l.words ? l.words.map((w) => h('span', { class: 'ly-w' }, w.w)) : [l.text || (data.synced ? '♪' : '')]));
+      if (data.synced) row.onclick = () => this.api.engine.seek(l.t + this.offset(t));
       list.append(row);
     });
     const src = { lrc: tr('ly.srcLrc'), tags: tr('ly.srcTags'), own: tr('ly.srcOwn'), lrclib: 'LRCLIB' }[res.source] || '';
     box.append(list);
-    foot.append(h('span', {}, (data.synced ? tr('ly.synced') : tr('ly.plain')) + (src ? ' · ' + src : '')));
+    foot.append(h('span', {}, (data.synced ? (data.karaoke ? tr('ly.karaoke') : tr('ly.synced')) : tr('ly.plain')) + (src ? ' · ' + src : '')));
+    if (data.synced) {
+      // a line late or early against the voice: nudge the whole text, remembered for this track
+      const val = h('b', { class: 'ly-off-v' });
+      const paintOff = () => { const o = this.offset(t); val.textContent = (o > 0 ? '+' : o < 0 ? '−' : '±') + Math.abs(o).toFixed(2) + ' ' + tr('pb.s'); };
+      const nudge = (d) => { this.api.setLyricsOffset(t, Math.round((this.offset(t) + d) * 100) / 100); paintOff(); ly.idx = -2; this.followLyrics(this.api.engine.time, true); };
+      paintOff();
+      foot.append(h('span', { class: 'ly-off', title: tr('ly.offsetT') },
+        h('button', { class: 'text-btn', 'aria-label': tr('ly.earlier'), onClick: () => nudge(-.25) }, '−'), val,
+        h('button', { class: 'text-btn', 'aria-label': tr('ly.later'), onClick: () => nudge(.25) }, '+')));
+    }
+    foot.append(h('button', { class: 'text-btn ly-again ly-tvbtn', onClick: () => this.toggleTv() }, tr('ly.tv')));
     // found online but maybe not the right one, or only plain text: one more fresh lookup
     if (res.source === 'lrclib' && !online) foot.append(h('button', { class: 'text-btn ly-again', onClick: () => this.loadLyrics(true) }, tr('ly.again')));
     // the user's own text (a .lrc, the tags, one they pasted): the internet can still be asked, without touching it
@@ -310,7 +348,9 @@ export class DeepView {
   followLyrics(time, jump) {
     const ly = this.ly;
     if (!ly || !ly.data || !ly.data.synced || !this.el) return;
+    time -= this.offset(this.api.getTrack());
     const idx = lineAt(ly.data.lines, time);
+    if (ly.data.karaoke) this.followWords(idx, time);
     if (idx === ly.idx && !jump) return;
     ly.idx = idx;
     const list = this.el.querySelector('.ly-lines');

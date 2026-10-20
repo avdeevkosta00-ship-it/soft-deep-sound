@@ -4,7 +4,7 @@
  * Owns: window, the privileged sds:// protocol (app files + local media with Range support),
  * library persistence, metadata probing, web search providers and safe downloads.
  */
-const { app, BrowserWindow, ipcMain, dialog, protocol, shell, Menu, nativeTheme, Tray, nativeImage, powerMonitor, screen, safeStorage, clipboard } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, protocol, shell, Menu, nativeTheme, Tray, nativeImage, powerMonitor, screen, safeStorage, clipboard, globalShortcut } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const fsp = fs.promises;
@@ -19,6 +19,8 @@ const { importDeezer } = require('./src/import/deezer');
 const spotify = require('./src/import/spotify');
 const musicbrainz = require('./src/meta/musicbrainz');
 const lyrics = require('./src/meta/lyrics');
+const updater = require('./src/updater');
+const discord = require('./src/discord');
 
 const RENDERER_DIR = path.join(__dirname, 'renderer');
 const AUDIO_EXT = new Set(['.mp3', '.flac', '.wav', '.ogg', '.oga', '.opus', '.m4a', '.aac', '.webm']);
@@ -143,7 +145,7 @@ function createWindow() {
   win.on('minimize', sendVisibility); win.on('restore', sendVisibility);
   win.on('focus', buildTrayMenu); win.on('blur', buildTrayMenu);
   // remember size, position and maximised state between launches
-  const saveBounds = () => { if (!win.isMinimized() && !win.isMaximized() && !win.isFullScreen()) prefs.bounds = win.getBounds(); prefs.maximized = win.isMaximized(); savePrefsSoon(); };
+  const saveBounds = () => { if (mini) return; if (!win.isMinimized() && !win.isMaximized() && !win.isFullScreen()) prefs.bounds = win.getBounds(); prefs.maximized = win.isMaximized(); savePrefsSoon(); };
   win.on('resize', saveBounds); win.on('move', saveBounds); win.on('maximize', saveBounds); win.on('unmaximize', saveBounds);
   win.on('maximize', () => win.webContents.send('win:state', { maximized: true }));
   win.on('unmaximize', () => win.webContents.send('win:state', { maximized: false }));
@@ -267,6 +269,44 @@ async function findMusicFolders() {
     if (files.length) out.push({ path: dir, count: files.length });
   }
   return out.sort((a, b) => b.count - a.count);
+}
+
+/* ---------------------------------- mini player ---------------------------------- */
+let mini = null; // { bounds, maximized } of the full window while the mini player is shown
+const MINI = { w: 480, h: 124 };
+function setMini(on, top) {
+  if (!win || win.isDestroyed()) return;
+  if (on && !mini) {
+    mini = { bounds: win.getBounds(), maximized: win.isMaximized() };
+    if (win.isMaximized()) win.unmaximize();
+    const wa = screen.getDisplayMatching(win.getBounds()).workArea;
+    win.setMinimumSize(320, 96);
+    win.setBounds({ x: wa.x + wa.width - MINI.w - 24, y: wa.y + wa.height - MINI.h - 24, width: MINI.w, height: MINI.h });
+    win.setResizable(false);
+    win.setAlwaysOnTop(top, 'floating');
+  } else if (!on && mini) {
+    const back = mini; mini = null;
+    win.setAlwaysOnTop(false);
+    win.setResizable(true);
+    win.setMinimumSize(1040, 680);
+    win.setBounds(back.bounds);
+    if (back.maximized) win.maximize();
+  } else if (on && mini) win.setAlwaysOnTop(top, 'floating');
+  win.webContents.send('win:mini', !!mini);
+  if (!win.isVisible()) win.show();
+}
+
+/* --------------------------------- global hotkeys --------------------------------- */
+const GLOBAL_KEYS = { 'Control+Alt+P': 'toggle', 'Control+Alt+Right': 'next', 'Control+Alt+Left': 'prev', 'Control+Alt+Up': 'volUp', 'Control+Alt+Down': 'volDown' };
+/** returns the combos another program already holds */
+function setGlobalKeys(on) {
+  for (const k of Object.keys(GLOBAL_KEYS)) { try { globalShortcut.unregister(k); } catch {} }
+  if (!on) return [];
+  const busy = [];
+  for (const [k, cmd] of Object.entries(GLOBAL_KEYS)) {
+    try { if (!globalShortcut.register(k, () => send(cmd))) busy.push(k); } catch { busy.push(k); }
+  }
+  return busy;
 }
 
 /* ------------------------------------- tray ------------------------------------- */
@@ -527,6 +567,7 @@ function registerIpc() {
   ipcMain.handle('web:open', (_e, url) => {
     if (/^https:\/\//i.test(url)) shell.openExternal(url);
   });
+
   // playlist import: only track lists are read (title, artist, album, length); nothing is downloaded
   ipcMain.handle('import:deezer', (_e, url) => importDeezer(url));
   ipcMain.handle('spotify:status', (_e, clientId) => spotify.status(clientId));
@@ -550,12 +591,23 @@ function registerIpc() {
   ipcMain.handle('downloads:open', async () => { await fsp.mkdir(downloadsDir(), { recursive: true }).catch(() => {}); return shell.openPath(downloadsDir()); });
 
   ipcMain.on('win:min', () => win.minimize());
+  // updates: state on request, download / install only on the user's click
+  ipcMain.handle('update:get', () => updater.get());
+  ipcMain.handle('update:check', () => updater.check(true));
+  ipcMain.handle('update:download', () => updater.download());
+  ipcMain.on('update:install', () => { quitting = true; updater.install(); });
+  ipcMain.handle('discord:set', (_e, on, id) => { discord.configure(!!on, /^\d{15,22}$/.test(String(id || '')) ? String(id) : ''); return discord.status(); });
+  // mini player: a small always-on-top strip in the corner; the full window comes back as it was
+  ipcMain.on('win:mini', (_e, on, top) => setMini(!!on, top !== false));
+  // global hotkeys for keyboards without media keys (the media keys themselves already work through Windows)
+  ipcMain.handle('keys:global', (_e, on) => setGlobalKeys(!!on));
   ipcMain.on('win:max', () => (win.isMaximized() ? win.unmaximize() : win.maximize()));
   ipcMain.on('win:close', () => win.close());
   ipcMain.on('media:state', (_e, st) => {
     const changed = st.playing !== media.playing || st.title !== media.title || st.artist !== media.artist || st.hasTrack !== media.hasTrack;
     Object.assign(media, { title: String(st.title || '').slice(0, 200), artist: String(st.artist || '').slice(0, 200), playing: !!st.playing, hasTrack: !!st.hasTrack });
     if (changed) { buildTrayMenu(); updateThumbar(); }
+    discord.update({ ...media, position: Number(st.position) || 0, duration: Number(st.duration) || 0 });
   });
   ipcMain.handle('app:pendingFiles', () => { const f = pendingFiles; pendingFiles = []; return f; });
   ipcMain.handle('app:prefs', () => ({ closeToTray: prefs.closeToTray, autostart: app.isPackaged ? autostartOn() : null }));
@@ -591,6 +643,8 @@ else {
     loadPrefs();
     spotify.init({ userDir, openExternal: (u) => shell.openExternal(u), safeStorage });
     musicbrainz.init({ version: app.getVersion(), coversDir });
+    // the portable build can't replace itself; it only hears that a new version exists
+    updater.init({ send: (st) => { if (win && !win.isDestroyed()) win.webContents.send('update:state', st); }, canInstall: !process.env.PORTABLE_EXECUTABLE_DIR, log: (k, e) => logError(k, e) });
     lyrics.init({ version: app.getVersion(), userDir, audioExt: AUDIO_EXT, names, identify: musicbrainz.identify, sim: musicbrainz.sim, norm: musicbrainz.norm });
     registerIpc();
     createWindow();
@@ -599,6 +653,7 @@ else {
     pendingFiles = process.argv.slice(1).filter((a) => AUDIO_EXT.has(path.extname(a).toLowerCase())).map((a) => path.resolve(a));
   });
   app.on('before-quit', () => { quitting = true; });
+  app.on('will-quit', () => globalShortcut.unregisterAll());
   // Windows logoff / shutdown must never be blocked by close-to-tray
   app.on('session-end', () => { quitting = true; });
   app.whenReady().then(() => powerMonitor.on('shutdown', () => { quitting = true; app.quit(); }));

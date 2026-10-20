@@ -21,7 +21,9 @@ export function captureState(engine, ambient) {
     .filter((l) => l.on && l.buffer && l.level > 0.001)
     .map((l) => ({ key: l.key, name: l.name, buffer: l.buffer, level: l.level }));
   const amb = { active: layers.length > 0 && ambient.master > 0.001, layers, master: ambient.master, depth: ambient.depth, sensitivity: ambient.sensitivity };
-  return { pitch, eq, ambient: amb, any: pitch.active || eq.active || amb.active };
+  const tempo = { value: engine.tempo || 1, active: Math.abs((engine.tempo || 1) - 1) > 1e-3 };
+  const reverb = { ...engine.reverb, active: !!(engine.reverb && engine.reverb.on && engine.reverb.mix > .001), ir: engine.convolver && engine.convolver.buffer };
+  return { pitch, tempo, reverb, eq, ambient: amb, any: pitch.active || tempo.active || reverb.active || eq.active || amb.active };
 }
 
 /** Short human tag for the file name / title, e.g. "Pitch +2 · EQ · Rain + Fire" */
@@ -32,6 +34,8 @@ export function describe(st, t) {
     const n = Math.round(v * 100) / 100;
     parts.push(`${st.pitch.vinyl ? 'Vinyl' : 'Pitch'} ${n > 0 ? '+' : ''}${n}`);
   }
+  if (st.tempo && st.tempo.active) parts.push(`×${st.tempo.value.toFixed(2)}`);
+  if (st.reverb && st.reverb.active) parts.push('Reverb');
   if (st.eq.active) parts.push('EQ');
   if (st.ambient.active) parts.push(st.ambient.layers.map((l) => t(l.name)).join(' + '));
   return parts.join(' · ');
@@ -91,8 +95,11 @@ async function duckCurve(buffer, rate, amb, frames) {
 export async function renderProcessed(buffer, st, onProgress = () => {}) {
   const sr = buffer.sampleRate;
   const vinyl = st.pitch.vinyl && st.pitch.active;
-  const rate = vinyl ? st.pitch.ratio : 1;
-  const shifter = st.pitch.active && !vinyl;
+  const tempo = st.tempo && st.tempo.active ? st.tempo.value : 1;
+  const rate = (vinyl ? st.pitch.ratio : 1) * tempo;
+  // tempo alone must keep the key: the shifter takes back what the faster playback raised
+  const shiftRatio = (vinyl ? 1 : (st.pitch.active ? st.pitch.ratio : 1)) / (vinyl ? 1 : tempo);
+  const shifter = Math.abs(shiftRatio - 1) > 1e-4;
   const win = Math.round(sr * 0.065);
   const lat = shifter ? Math.round(win / 2 + 4) : 0; // worklet delay, trimmed off afterwards
   const outLen = Math.ceil(buffer.length / rate);
@@ -105,9 +112,9 @@ export async function renderProcessed(buffer, st, onProgress = () => {}) {
     await addWorklet(oc);
     const p = new AudioWorkletNode(oc, 'sds-pitch-shifter', {
       numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2], channelCount: 2, channelCountMode: 'explicit',
-      processorOptions: { ratio: st.pitch.ratio }
+      processorOptions: { ratio: shiftRatio }
     });
-    p.parameters.get('ratio').value = st.pitch.ratio;
+    p.parameters.get('ratio').value = shiftRatio;
     node = node.connect(p);
   }
   if (st.eq.active) {
@@ -119,6 +126,14 @@ export async function renderProcessed(buffer, st, onProgress = () => {}) {
     });
     const pre = oc.createGain(); pre.gain.value = Math.pow(10, st.eq.pre / 20);
     node = node.connect(pre);
+  }
+  if (st.reverb && st.reverb.active && st.reverb.ir) {
+    // same impulse and balance as live playback
+    const out = oc.createGain(), cv = oc.createConvolver(), wet = oc.createGain();
+    cv.buffer = st.reverb.ir; wet.gain.value = st.reverb.mix * 1.4; out.gain.value = 1;
+    const dry = oc.createGain(); dry.gain.value = 1 - st.reverb.mix * .35;
+    node.connect(dry).connect(out); node.connect(cv).connect(wet).connect(out);
+    node = out;
   }
   node.connect(oc.destination);
   src.start(0);

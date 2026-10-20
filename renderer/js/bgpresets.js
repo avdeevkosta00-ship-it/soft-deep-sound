@@ -106,8 +106,10 @@ const SCENES = { aurora, waves, drift, silk };
 
 /** a still frame for the gallery tile */
 export function drawPresetThumb(canvas, id) {
-  const g = canvas.getContext('2d'), W = canvas.width, H = canvas.height;
-  (SCENES[id] || aurora)(g, W, H, 7.3, palette(), 0, {});
+  const g = canvas.getContext('2d'), W = canvas.width, H = canvas.height, p = palette();
+  (SCENES[id] || aurora)(g, W, H, 7.3, p, 0, {});
+  // full screen the scenes are calm on purpose; a tile that small needs them louder to be told apart
+  if (p.dark) { g.globalCompositeOperation = 'lighter'; g.globalAlpha = .7; g.drawImage(canvas, 0, 0); g.globalAlpha = 1; g.globalCompositeOperation = 'source-over'; }
 }
 
 /** the running background behind the interface */
