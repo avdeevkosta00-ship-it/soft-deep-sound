@@ -80,7 +80,9 @@ export class Tools {
     this.engine.applyPitch();
     this.engine.eqOn = q.on; this.engine.setEq(q.gains, q.pre);
     const fx = this.settings.fx || { tempo: 1, reverb: { on: false, room: 'hall', mix: .3 } };
-    this.engine.setTempo(fx.tempo); this.engine.setReverb(fx.reverb);
+    // older settings had no separate power: Space counted as on when reverb was on or the tempo was moved
+    const spaceOn = fx.on ?? (!!fx.reverb.on || fx.tempo !== 1);
+    this.engine.setTempo(fx.tempo); this.engine.setReverb(fx.on === undefined ? { ...fx.reverb, on: true } : fx.reverb); this.engine.setSpaceOn(spaceOn);
     Object.assign(this.ambient, { depth: a.depth, sensitivity: a.sens });
     this.ambient.setMaster(a.master);
     for (const { key } of LAYERS) this.ambient.layers[key].level = a.levels[key] ?? .5;
@@ -122,7 +124,7 @@ export class Tools {
       pitch: e.pitchOn && (e.semitones !== 0 || e.cents !== 0),
       ambient: this.ambient.anyOn,
       eq: e.eqOn && (e.eqGains.some((g) => g !== 0) || e.eqPre !== 0),
-      space: e.tempo !== 1 || e.reverb.on
+      space: e.spaceOn && (e.tempo !== 1 || (e.reverb.on && e.reverb.mix > 0))
     };
     for (const [k, on] of Object.entries(state)) {
       $(`[data-led="${k}"]`)?.classList.toggle('on', on);
@@ -136,7 +138,7 @@ export class Tools {
     this.settings.pitch = { semi: e.semitones, cents: e.cents, vinyl: e.vinyl, on: e.pitchOn };
     this.settings.ambient = { depth: a.depth, sens: a.sensitivity, master: a.master, levels: Object.fromEntries(LAYERS.map(({ key }) => [key, a.layers[key].level])) };
     this.settings.eq = { on: e.eqOn, gains: [...e.eqGains], pre: e.eqPre, preset: this.settings.eq.preset };
-    this.settings.fx = { tempo: e.tempo, reverb: { ...e.reverb } };
+    this.settings.fx = { on: e.spaceOn, tempo: e.tempo, reverb: { ...e.reverb } };
     this.save();
   }
 
@@ -303,8 +305,8 @@ export class Tools {
   spacePanel() {
     const e = this.engine;
     const c = chassis({
-      title: t('sp.title'), sub: t('sp.sub'), code: 'FX·04', powered: e.reverb.on,
-      onPower: (on) => { e.setReverb({ on }); roomSeg.classList.toggle('off', !on); this.leds(); this.persist(); }
+      title: t('sp.title'), sub: t('sp.sub'), code: 'FX·04', powered: e.spaceOn,
+      onPower: (on) => { e.setSpaceOn(on); this.leds(); this.persist(); }
     });
     // tempo: speed without changing the key
     const big = h('div', { class: 'big' }), note = h('div', { class: 'interval' });
@@ -320,9 +322,9 @@ export class Tools {
       onInput: (v) => { e.setTempo(v / 100); paint(); this.leds(); this.persist(); }
     });
     // reverb: room, then how much of it
-    const roomSeg = h('div', { class: 'seg' + (e.reverb.on ? '' : ' off') }, ...['room', 'hall', 'cathedral'].map((k) => {
+    const roomSeg = h('div', { class: 'seg' }, ...['room', 'hall', 'cathedral'].map((k) => {
       const b = h('button', { class: e.reverb.room === k ? 'on' : '', dataset: { k } }, t('sp.r.' + k));
-      b.onclick = () => { e.setReverb({ room: k, on: true }); c.power.classList.add('on'); roomSeg.classList.remove('off');
+      b.onclick = () => { e.setReverb({ room: k, on: true });
         roomSeg.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b)); this.leds(); this.persist(); };
       return b;
     }));

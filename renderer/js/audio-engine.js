@@ -66,6 +66,7 @@ export class AudioEngine extends EventTarget {
     this.pitchNode = null;
     this.semitones = 0; this.cents = 0; this.pitchOn = true; this.vinyl = false;
     this.tempo = 1; // playback speed without changing the key
+    this.spaceOn = false; // «Space» power: when off, tempo and reverb are kept but not heard
     this.volume = .8; this.muted = false;
     this.setVolume(this.volume);
     this.crossfade = 0; // seconds; 0 = off
@@ -249,11 +250,14 @@ export class AudioEngine extends EventTarget {
   setPitchOn(on) { this.pitchOn = on; this.applyPitch(); }
   setVinyl(v) { this.vinyl = v; this.applyPitch(); }
   setTempo(r) { this.tempo = Math.max(.5, Math.min(2, r || 1)); this.applyPitch(); }
+  /** the tempo actually applied: 1 while «Space» is off */
+  get tempoNow() { return this.spaceOn ? this.tempo : 1; }
+  setSpaceOn(on) { this.spaceOn = !!on; this.applyPitch(); this.setReverb(); }
   applyRate(a) {
     const ratio = this.pitchOn ? this.pitchRatio : 1;
     // «Vinyl» is classic varispeed (key and tempo move together); tempo alone keeps the key
     a.preservesPitch = !this.vinyl;
-    a.playbackRate = (this.vinyl ? ratio : 1) * this.tempo;
+    a.playbackRate = (this.vinyl ? ratio : 1) * this.tempoNow;
   }
   applyPitch() {
     const ratio = this.pitchOn ? this.pitchRatio : 1;
@@ -281,6 +285,7 @@ export class AudioEngine extends EventTarget {
     if (room !== this.reverb.room || !this.convolver.buffer) this.convolver.buffer = this.impulse(room);
     this.reverb = { on, room, mix };
     const t = this.ctx.currentTime;
+    on = on && this.spaceOn;
     this.wet.gain.setTargetAtTime(on ? mix * 1.4 : 0, t, .08);
     this.out.gain.setTargetAtTime(on ? 1 - mix * .35 : 1, t, .08); // keep the sum from getting louder
   }

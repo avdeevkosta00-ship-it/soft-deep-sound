@@ -21,8 +21,8 @@ export function captureState(engine, ambient) {
     .filter((l) => l.on && l.buffer && l.level > 0.001)
     .map((l) => ({ key: l.key, name: l.name, buffer: l.buffer, level: l.level }));
   const amb = { active: layers.length > 0 && ambient.master > 0.001, layers, master: ambient.master, depth: ambient.depth, sensitivity: ambient.sensitivity };
-  const tempo = { value: engine.tempo || 1, active: Math.abs((engine.tempo || 1) - 1) > 1e-3 };
-  const reverb = { ...engine.reverb, active: !!(engine.reverb && engine.reverb.on && engine.reverb.mix > .001), ir: engine.convolver && engine.convolver.buffer };
+  const tempo = { value: engine.tempoNow || 1, active: Math.abs((engine.tempoNow || 1) - 1) > 1e-3 };
+  const reverb = { ...engine.reverb, active: !!(engine.spaceOn && engine.reverb && engine.reverb.on && engine.reverb.mix > .001), ir: engine.convolver && engine.convolver.buffer };
   return { pitch, tempo, reverb, eq, ambient: amb, any: pitch.active || tempo.active || reverb.active || eq.active || amb.active };
 }
 
