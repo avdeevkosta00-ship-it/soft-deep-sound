@@ -1,4 +1,4 @@
-import { bridge, isMock } from './bridge.js';
+import { bridge, isMock, isAndroid } from './bridge.js';
 import { AudioEngine } from './audio-engine.js';
 import { Ambient } from './ambient.js';
 import { Visualizer, WaveSeek } from './visualizer.js';
@@ -13,7 +13,6 @@ import { VisualMode } from './visual.js';
 import { findSimilar, buildSession, healthReport, fixMojibake, titleFromPath, analyzed, quality, MOODS } from './smart.js';
 import { runSplash } from './splash.js';
 import { search as fuzzySearch } from './fuzzy.js';
-import { createPlaylistImport } from './playlist-import.js';
 import { createLibraryRepair } from './library-repair.js';
 import { createAppearance } from './appearance.js';
 import { createTrim } from './trim.js';
@@ -22,6 +21,7 @@ import { captureState, describe, renderProcessed, encodeWav, encodeMp3 } from '.
 import { ICON } from './icons.js';
 import { hash } from './ui.js';
 import { t as tr, tn, setLang, getLang, detectLang, applyStatic, LANGS } from './i18n.js';
+import { JAMENDO_CLIENT_ID } from './keys.js';
 import { $, $$, h, esc, fmt, fmtLong, plural, debounce, genArt, toast, ctxMenu, openModal, closeModal, clamp, uid, dragValue, popover, closePopover, closeCtx } from './ui.js';
 
 /* ================================ state ================================ */
@@ -30,7 +30,7 @@ const DEFAULTS = {
   pitch: { semi: 0, cents: 0, vinyl: false, on: true },
   ambient: { depth: .7, sens: .5, master: .8, levels: { rain: .55, ocean: .55, vinyl: .45, fire: .5, train: .5 } },
   eq: { on: true, gains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], pre: 0, preset: 'flat' },
-  layout: null, bgAnalyze: true, exportFormat: 'mp3', exportAdd: true, spotifyClientId: '', tourDone: false, crossfade: 0, normalize: true, outputId: '', globalKeys: true, miniTop: true, discord: false, discordId: '',
+  layout: null, bgAnalyze: true, exportFormat: 'mp3', exportAdd: true, tourDone: false, crossfade: 0, normalize: true, outputId: '', globalKeys: true, miniTop: true, discord: false, discordId: '',
   fx: { tempo: 1, reverb: { on: false, room: 'hall', mix: .3 } }, showcaseDone: false, lyricsOnline: true,
   look: { accent: 'theme', fx: 'live', blur: 'normal', bgList: [], bgActive: null, bgDim: 'soft' }
 };
@@ -50,12 +50,14 @@ const S = {
 };
 const engine = new AudioEngine();
 const ambient = new Ambient(engine);
-let viz, wave, tools, layout, bg, deep, visual, shapes, plImport, tour, repair, look, trim;
+let viz, wave, tools, layout, bg, deep, visual, shapes, tour, repair, look, trim;
 const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 const preview = new Audio();
 
 const index = () => { S.byId = new Map(S.tracks.map((t) => [t.id, t])); };
-const T = (id) => S.byId.get(id);
+/** tracks played straight from the web search: not in the library, gone after a restart */
+const streams = new Map();
+const T = (id) => S.byId.get(id) || streams.get(id);
 const art = (t) => (t && t.cover ? `url("${bridge.mediaUrl(t.cover)}") center/cover` : genArt(t ? t.id + t.album : 'x'));
 const artistOf = (t) => t.artist || tr('unknownArtist');
 
@@ -108,20 +110,9 @@ async function importPaths(paths) {
   if (['library', 'recent'].includes(S.view.type)) render(false);
   if (added.length) importToast(added);
   if (added.length && repair) setTimeout(() => repair.suggestAfterImport(added), 1400);
-  if (added.length) recheckImported();
   else if (probed.length) toast(tr('toast.exists'));
   else toast(tr('toast.noAudio'));
   return probed.map((x) => x.id);
-}
-/** new files may complete imported playlists that were waiting for them */
-async function recheckImported() {
-  if (!plImport) return;
-  let total = 0;
-  for (const pl of S.playlists.filter((p) => p.missing && p.missing.length)) {
-    const n = await plImport.recheck(pl);
-    if (n) { total += n; flashPlaylist(pl.id); }
-  }
-  if (total) { renderSidebar(); if (S.view.type === 'playlist') render(false); toast(tr('pi.autoFound', { n: tn('tracks', total) })); }
 }
 /** files opened from Explorer ("Open with", double-click): add them and start playing */
 async function openFiles(files) {
@@ -248,7 +239,7 @@ async function loadCurrent(autoplay = true, at = 0, crossfade = 0) {
     if (autoplay && ++loadFails < Math.min(5, S.queue.length) && S.qi < S.queue.length - 1) { S.qi++; return loadCurrent(true); }
     loadFails = 0; return;
   }
-  analyze(t);
+  if (!t.stream) analyze(t);
   deep && deep.update();
   save();
 }
@@ -489,6 +480,23 @@ function renderUpNext() {
 function markPlayingRows() {
   $$('.row.playing').forEach((r) => r.classList.remove('playing'));
   if (S.current) $$(`.row[data-id="${S.current.id}"]`).forEach((r) => r.classList.add('playing'));
+  markWebRows();
+}
+/** the web result that is playing shows a pause button; the others a play button */
+function markWebRows() {
+  const cur = S.current && S.current.stream ? S.current.id : null;
+  $$('.web-row').forEach((row) => {
+    const on = cur === 'web:' + row.dataset.wid, b = row.querySelector('.web-play');
+    row.classList.toggle('playing', on);
+    if (b) { const pause = on && engine.playing; b.classList.toggle('on', on); b.innerHTML = pause ? ICON.pause : ICON.play; b.title = tr(pause ? 'w.pause' : 'w.listen'); }
+  });
+}
+/** a web result as a track the player can queue and play (nothing is saved to disk) */
+function streamTrack(r) {
+  const id = 'web:' + r.id;
+  if (!streams.has(id)) streams.set(id, { id, path: r.streamUrl, title: r.title, artist: r.artist || '', album: r.album || '', duration: r.duration || 0,
+    cover: r.cover || null, format: r.format || 'MP3', stream: true, pageUrl: r.pageUrl || '', license: r.license || '', provider: r.providerLabel, addedAt: Date.now(), bpm: null });
+  return streams.get(id);
 }
 
 /* ============================== sidebar ============================== */
@@ -620,7 +628,9 @@ function viewLibrary(host) {
     kicker: tr('lib.kicker'), title: tr('lib.title'),
     sub: list.length ? `${tn('tracks', list.length)} · ${fmtLong(total(list))}` : tr('lib.empty'),
     actions: list.length ? [seg, pill(tr('v.shuffle'), ICON.kShuffle, () => { S.shuffle = true; syncModeBtns(); playFrom(list.map((t) => t.id), (Math.random() * list.length) | 0); }, true),
-      pill(tr('v.play'), ICON.kPlay, () => playFrom(list.map((t) => t.id), 0))] : []
+      pill(tr('v.play'), ICON.kPlay, () => playFrom(list.map((t) => t.id), 0)),
+      // a phone has no folders to pick: look through Android's music again for new files
+      isAndroid ? pill(tr('and.rescan'), ICON.kImport, () => pickImport('files'), true) : null].filter(Boolean) : []
   }));
   if (!list.length) return emptyState(host, tr('lib.emptyT'), tr('lib.emptyD'));
   host.append(trackList(list.map((t) => t.id), {}));
@@ -651,13 +661,6 @@ function viewPlaylist(host) {
     actions: ts.length ? [pill(tr('v.shuffle'), ICON.kShuffle, () => { S.shuffle = true; syncModeBtns(); playFrom(pl.trackIds, (Math.random() * ts.length) | 0); }, true),
       pill(tr('v.play'), ICON.kPlay, () => playFrom(pl.trackIds, 0))] : []
   }));
-  if (pl.missing && pl.missing.length) {
-    const again = h('button', { class: 'chip-btn' }, tr('pi.recheck'));
-    again.onclick = async () => { again.disabled = true; const n = await plImport.recheck(pl); renderSidebar(); render(false); toast(n ? tr('pi.recheckFound', { n: tn('tracks', n) }) : tr('pi.recheckNone')); };
-    host.append(h('div', { class: 'notice pi-missing-note' },
-      h('span', {}, h('b', {}, tr('pi.missingNote', { n: tn('tracks', pl.missing.length) })), ' ', tr('pi.missingNoteD')),
-      h('span', { class: 'grow' }), h('button', { class: 'chip-btn', onClick: () => plImport.showMissing(pl) }, tr('pi.show')), again));
-  }
   if (!ts.length) return emptyState(host, tr('pl.emptyT'), tr('pl.emptyD'), false);
   host.append(trackList(ts.map((t) => t.id), { playlist: pl }));
 }
@@ -982,9 +985,21 @@ const SHOWCASE = [
   { key: 'sc.session', sel: '#sessionBtn', enter: () => { if (tools.isOpen) tools.close(); }, wait: 320 },
   { key: 'sc.done', sel: '#helpBtn' }
 ];
+/** the phone layout (Android app or a narrow window): one column, tap plays */
+const phone = matchMedia('(max-width: 760px)');
+// the on-screen keyboard shrinks the window: while it is up, the player strip and the tab bar step aside
+{
+  let full = innerHeight;
+  addEventListener('resize', () => {
+    if (innerHeight > full) full = innerHeight;
+    document.documentElement.classList.toggle('kb', phone.matches && innerHeight < full * .78);
+  });
+  addEventListener('orientationchange', () => { full = 0; });
+}
+
 let showcaseTimer = 0;
 function maybeShowcase() {
-  if (S.settings.showcaseDone || showcaseTimer) return;
+  if (S.settings.showcaseDone || showcaseTimer || phone.matches) return;
   // give the first track a moment to be heard before anything covers the screen
   showcaseTimer = setTimeout(() => {
     showcaseTimer = 0;
@@ -1085,7 +1100,7 @@ function trackList(ids, opts) {
       else { const r = a.getBoundingClientRect(); trackMenu(r.left, r.bottom + 4, [id], opts, i); }
       return;
     }
-    if (e.target.closest('.play-mini')) { if (opts.queue) { S.qi = i; loadCurrent(true); } else playFrom(ids, i); return; }
+    if (e.target.closest('.play-mini') || phone.matches) { if (opts.queue) { S.qi = i; loadCurrent(true); } else playFrom(ids, i); return; }
     if (!e.ctrlKey && !e.metaKey) { S.selected.clear(); $$('.row.sel', wrap).forEach((r) => r.classList.remove('sel')); }
     S.selected.has(id) ? S.selected.delete(id) : S.selected.add(id);
     row.classList.toggle('sel', S.selected.has(id));
@@ -1157,7 +1172,7 @@ async function sleepFade() {
 function bindMedia() {
   const push = () => {
     const t = S.current;
-    bridge.media && bridge.media.state({ title: t ? t.title : '', artist: t ? artistOf(t) : '', playing: engine.playing, hasTrack: !!t, position: engine.time, duration: engine.duration });
+    bridge.media && bridge.media.state({ title: t ? t.title : '', artist: t ? artistOf(t) : '', album: t ? t.album || '' : '', cover: t ? t.cover || null : null, playing: engine.playing, hasTrack: !!t, position: engine.time, duration: engine.duration, rate: engine.rate });
     const ms = navigator.mediaSession;
     if (ms && t) {
       // Windows shows this in its media flyout and on the lock screen; hardware media keys work too
@@ -1168,7 +1183,7 @@ function bindMedia() {
       } catch {}
     }
   };
-  for (const ev of ['play', 'pause', 'ended', 'loadedmetadata']) engine.addEventListener(ev, push);
+  for (const ev of ['play', 'pause', 'ended', 'loadedmetadata', 'seeked']) engine.addEventListener(ev, push);
   const ms = navigator.mediaSession;
   if (ms) {
     const on = (a, fn) => { try { ms.setActionHandler(a, fn); } catch {} };
@@ -1178,6 +1193,10 @@ function bindMedia() {
   }
   if (bridge.media) bridge.media.onCommand((cmd) => {
     if (cmd === 'toggle') togglePlay();
+    // Android: the notification, the lock screen and headset buttons
+    else if (cmd === 'play') (S.current ? engine.play() : togglePlay());
+    else if (cmd === 'pause') engine.pause();
+    else if (cmd.startsWith('seek:')) engine.seek(+cmd.slice(5));
     else if (cmd === 'next') next();
     else if (cmd === 'prev') prev();
     else if (cmd === 'mute') { engine.setMuted(!engine.muted); bindDeck.paintVol(); }
@@ -1188,6 +1207,17 @@ function bindMedia() {
   });
   push();
   bindMedia.push = push;
+}
+
+/** Esc / Android «Back»: closes the topmost layer; false when nothing was open */
+function closeTop() {
+  if (closePopover()) return true;
+  if ($('.ctxmenu.open')) { closeCtx(); return true; }
+  if ($('#modal').classList.contains('open')) { closeModal(); return true; }
+  if (visual.isOpen) { visual.close(); return true; }
+  if (deep.isOpen) { deep.close(); return true; }
+  if (tools.isOpen) { tools.close(); return true; }
+  return false;
 }
 
 /* ============================== hybrid search ============================== */
@@ -1242,7 +1272,8 @@ function renderPop() {
 function closeSearch() { pop.classList.remove('open'); input.blur(); }
 function openSearchView(q) { closeSearch(); setView({ type: 'search', q }); }
 function openLinkView(url) { closeSearch(); setView({ type: 'link', url }); }
-input.addEventListener('focus', () => { searchEl.classList.add('focus'); renderPop(); });
+// on a phone the old query is selected, so typing starts a new one instead of editing it
+input.addEventListener('focus', () => { searchEl.classList.add('focus'); renderPop(); if (phone.matches && input.value) setTimeout(() => input.select(), 0); });
 input.addEventListener('blur', () => { searchEl.classList.remove('focus'); setTimeout(() => pop.classList.remove('open'), 120); });
 input.addEventListener('input', debounce(renderPop, 60));
 input.addEventListener('keydown', (e) => {
@@ -1256,7 +1287,8 @@ input.addEventListener('keydown', (e) => {
     const q = input.value.trim(); if (!q) return;
     if (kb >= 0 && items[kb]) items[kb].dispatchEvent(new MouseEvent('mousedown'));
     else if (isUrl(q)) openLinkView(q);
-    else if (e.shiftKey || !localMatches(q, 1).length) openSearchView(q); // full results + the web
+    // the phone's «Go» key and Shift+↵ open the full results (library + the web); plain ↵ on the desktop plays the best match
+    else if (e.shiftKey || phone.matches || !localMatches(q, 1).length) openSearchView(q);
     else { const list = localMatches(q).map((x) => x.id); playFrom(list, 0); closeSearch(); } // ↵ plays the best match
   } else if (e.key === 'Escape') { input.value = ''; renderPop(); input.blur(); }
 });
@@ -1270,16 +1302,17 @@ function viewSearch(host) {
   if (lastVia && local.length) host.append(h('div', { class: 'sp-via' }, tr('sp.via', { q: lastVia })));
   if (local.length) host.append(trackList(local.map((t) => t.id), {}));
   else host.append(h('div', { class: 'sp-empty' }, tr('s.noLib')));
+  if (!bridge.web.search) return; // the phone has no web search yet
   const webBox = h('div');
   host.append(h('div', { class: 'sec-title' }, h('span', {}, tr('s.open')), h('span', { class: 'badge lic' }, tr('s.lic'))), webBox);
   for (let i = 0; i < 4; i++) webBox.append(h('div', { class: 'skel', style: { opacity: 1 - i * .2 } }));
   const my = ++searchSeq;
-  bridge.web.search(q, { jamendoClientId: S.settings.jamendoClientId }).then(({ results, errors, query }) => {
+  bridge.web.search(q, { jamendoClientId: S.settings.jamendoClientId || JAMENDO_CLIENT_ID }).then(({ results, errors, query }) => {
     if (my !== searchSeq || !webBox.isConnected) return;
     webBox.innerHTML = '';
     if (query && results.length) webBox.append(h('div', { class: 'sp-via' }, tr('s.asked', { q: query })));
     if (!results.length) webBox.append(h('div', { class: 'sp-empty' }, tr('s.noWeb')));
-    results.forEach((r, i) => webBox.append(webRow(r, i)));
+    results.forEach((r, i) => webBox.append(webRow(r, i, results)));
     if (errors.length) webBox.append(h('div', { class: 'notice' }, tr('s.down', { list: errors.map((e) => e.provider).join(', ') })));
   }).catch((e) => { if (webBox.isConnected) webBox.innerHTML = `<div class="notice">${esc(tr('s.fail', { msg: e.message }))}</div>`; });
   host.append(soundcloudCard(q), linkCard());
@@ -1312,6 +1345,7 @@ function viewLink(host) {
   const url = S.view.url;
   let shown = url; try { shown = new URL(/^https?:/i.test(url) ? url : 'https://' + url).hostname.replace(/^www\./, ''); } catch {}
   host.append(header({ kicker: tr('lk.kicker'), title: esc(shown), sub: url }));
+  if (!bridge.web.extract) return host.append(h('div', { class: 'sp-empty' }, tr('s.noLib')));
   const box = h('div');
   host.append(h('div', { class: 'sec-title' }, tr('lk.sec')), box);
   for (let i = 0; i < 3; i++) box.append(h('div', { class: 'skel', style: { opacity: 1 - i * .25 } }));
@@ -1343,23 +1377,22 @@ function stopPreview() {
 }
 preview.addEventListener('ended', stopPreview);
 preview.addEventListener('error', () => { if (previewing) { stopPreview(); toast(tr('w.noPreview')); } });
-function webRow(r, i) {
-  const prevBtn = h('button', { class: 'icon-btn', title: tr('w.preview'), html: ICON.play });
+function webRow(r, i, list = [r]) {
+  const prevBtn = h('button', { class: 'icon-btn web-play', title: tr('w.listen'), html: ICON.play });
   const dl = h('button', { class: 'chrome-pill sm progress-pill dl' }, h('span', { class: 'pp-fill' }), h('span', { class: 'cp-ico', html: ICON.kDownload }), h('span', { class: 'lbl' }, tr('w.dl')));
   const link = h('button', { class: 'icon-btn', title: tr('w.page'), html: ICON.link });
   const row = h('div', { class: 'web-row', style: { '--i': i }, dataset: { wid: r.id } },
-    h('div', { class: 'web-ico', html: ICON.note }),
+    r.cover ? h('div', { class: 'web-ico cover', style: { background: `url("${r.cover}") center/cover` } }) : h('div', { class: 'web-ico', html: ICON.note }),
     h('div', { class: 'web-meta' }, h('div', { class: 't' }, r.title),
       h('div', { class: 's' }, h('span', {}, r.artist || '—'), h('span', { class: 'badge' }, r.providerLabel), r.license ? h('span', { class: 'badge lic' }, r.license) : null,
         h('span', { class: 'badge' }, r.format || 'AUDIO'), r.duration ? h('span', { class: 'mono' }, fmt(r.duration)) : null)),
-    prevBtn, link, dl);
+    prevBtn, link, r.fileUrl ? dl : h('span', { class: 'web-nodl', title: tr('w.noDl') }, tr('w.streamOnly')));
   prevBtn.onclick = () => {
-    if (previewing === r.id) { preview.pause(); previewing = null; prevBtn.innerHTML = ICON.play; return; }
-    $$('.web-row .icon-btn.on').forEach((b) => { b.classList.remove('on'); b.innerHTML = ICON.play; });
-    if (engine.playing) engine.pause();
-    preview.volume = engine.muted ? 0 : Math.pow(engine.volume, 1.8);
-    preview.src = r.fileUrl; preview.play().catch(() => { stopPreview(); toast(tr('w.noPreview')); });
-    previewing = r.id; prevBtn.classList.add('on'); prevBtn.innerHTML = ICON.stop;
+    const t = streamTrack(r);
+    if (S.current === t) { togglePlay(); return; }
+    // the whole result list becomes the queue, so «next» goes on to the next result
+    const ids = list.filter((x) => x.streamUrl).map((x) => streamTrack(x).id);
+    playFrom(ids, Math.max(0, ids.indexOf(t.id)));
   };
   link.onclick = () => r.pageUrl && bridge.web.open(r.pageUrl);
   dl.onclick = async () => {
@@ -1417,7 +1450,8 @@ function bindDeck() {
     clearTimeout(pb._imp); pb._imp = setTimeout(() => pb.classList.remove('impulse'), 1200);
     maybeShowcase();
   });
-  engine.addEventListener('pause', () => { document.body.classList.remove('playing'); document.body.classList.add('paused'); save(); });
+  engine.addEventListener('pause', () => { document.body.classList.remove('playing'); document.body.classList.add('paused'); save(); markWebRows(); });
+  engine.addEventListener('play', markWebRows);
   engine.addEventListener('error', () => { if (S.current && !engine.loading) toast(tr('toast.fileGone', { title: S.current.title })); });
 
   // seek bar
@@ -1433,7 +1467,8 @@ function bindDeck() {
   dragValue(seek, {
     onStart: (e) => { dragging = true; dragP = pAt(e.clientX); },
     onMove: (e) => { dragP = pAt(e.clientX); },
-    onEnd: () => { dragging = false; engine.seek(dragP * engine.duration); }
+    // where the finger was lifted: a quick flick ends past its last move event
+    onEnd: (e) => { dragging = false; if (e && e.type === 'pointerup') dragP = pAt(e.clientX); engine.seek(dragP * engine.duration); }
   });
   let lastSec = -1;
   const nhDot = $('#nhDot'), nhTime = $('#nhTime'), nhState = $('#nhState'), nhNum = $('#nhNum');
@@ -1504,7 +1539,9 @@ function switchSoftDeep() {
   const next = PAIR[S.settings.theme] || 'soft';
   const sw = $('#sdSwitch').getBoundingClientRect();
   const x = sw.left + sw.width / 2, y = sw.top + sw.height / 2;
-  if (!document.startViewTransition || reducedMotion()) { applyTheme(next); return; }
+  if (reducedMotion()) { applyTheme(next); return; }
+  if (phone.matches) return dipToTheme(next);
+  if (!document.startViewTransition) { applyTheme(next); return; }
   const toDark = DARK_THEMES.has(next);
   document.documentElement.classList.add('sd-vt', toDark ? 'to-dark' : 'to-light');
   const vt = document.startViewTransition(() => applyTheme(next));
@@ -1517,6 +1554,28 @@ function switchSoftDeep() {
   }).catch(() => {});
   vt.finished.finally(() => document.documentElement.classList.remove('sd-vt', 'to-dark', 'to-light'));
 }
+/**
+ * Soft ↔ Deep on a phone. Drawing the whole screen in the new theme takes a phone ~200 ms (glass blur at
+ * ~3 px per point), which a cross-fade or the desktop's circle can only show as a stutter. So the screen
+ * dims into the new theme's colour, the theme changes under that veil, and the veil lifts:
+ * only the opacity of one layer moves, which the GPU does on its own.
+ */
+let dipping = false;
+async function dipToTheme(next) {
+  if (dipping) return;
+  dipping = true;
+  const veil = h('div', { class: 'theme-veil', style: { background: THEMES.find((t) => t.key === next).bg } });
+  document.body.append(veil);
+  try {
+    await veil.animate({ opacity: [0, 1] }, { duration: 200, easing: 'cubic-bezier(.4,0,1,1)', fill: 'forwards' }).finished;
+    document.documentElement.classList.add('sd-vt'); // colours switch at once, not through their transitions
+    applyTheme(next);
+    // two frames: the new theme gets painted (the slow part) while the veil still covers it
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    document.documentElement.classList.remove('sd-vt');
+    await veil.animate({ opacity: [1, 0] }, { duration: 380, easing: 'cubic-bezier(0,0,.2,1)', fill: 'forwards' }).finished;
+  } finally { veil.remove(); dipping = false; }
+}
 function applyTheme(theme) {
   if (LEGACY_THEME[theme]) theme = LEGACY_THEME[theme];
   if (!THEMES.some((t) => t.key === theme)) theme = 'soft';
@@ -1525,6 +1584,7 @@ function applyTheme(theme) {
   S.settings.theme = theme; save();
   const th = THEMES.find((t) => t.key === theme);
   $('#themeName').textContent = tr(th.name); $('#themeSw').style.background = th.bg;
+  bridge.app.setTone && bridge.app.setTone(!DARK_THEMES.has(theme));
   const sd = $('#sdSwitch'); if (sd) { const dark = DARK_THEMES.has(theme); sd.classList.toggle('dark', dark); sd.setAttribute('aria-checked', String(dark)); }
   // accent overrides depend on the tone (darker on light themes): re-derive them, then repaint the canvases
   if (look) look.apply(); else refreshCanvases();
@@ -1545,7 +1605,8 @@ function themeCards(onPick) {
       h('i', { style: { left: '8%', top: '82%', width: '84%', height: '8%', background: t.p } }),
       h('i', { style: { left: '46%', top: '80%', width: '10px', height: '10px', borderRadius: '50%', background: t.a } }));
     const c = h('button', { class: 'theme-card' + (S.settings.theme === t.key ? ' on' : '') }, pv, h('b', {}, tr(t.name)), h('small', {}, tr(t.desc)));
-    c.onclick = () => { applyTheme(t.key); c.parentNode.querySelectorAll('.theme-card').forEach((x) => x.classList.toggle('on', x === c)); onPick && onPick(); };
+    // a phone changes the theme under the same veil as the Soft/Deep switch (repainting it all in the open stutters)
+    c.onclick = () => { if (t.key === S.settings.theme) return; phone.matches && !reducedMotion() ? dipToTheme(t.key) : applyTheme(t.key); c.parentNode.querySelectorAll('.theme-card').forEach((x) => x.classList.toggle('on', x === c)); onPick && onPick(); };
     return c;
   }));
 }
@@ -1640,7 +1701,8 @@ async function playbackRows(tg) {
     h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('pb.xf')), h('small', {}, tr('pb.xfD'))), xf),
     h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('pb.norm')), h('small', {}, tr('pb.normD'))),
       tg(S.settings.normalize, (v) => { S.settings.normalize = v; save(); engine.setTrackGain(normGain(S.current)); })),
-    h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('pb.out')), h('small', {}, tr('pb.outD'))), sel),
+    // Android routes the sound itself (speaker, headphones, Bluetooth); the WebView cannot pick a device
+    isAndroid ? null : h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('pb.out')), h('small', {}, tr('pb.outD'))), sel),
     ...(bridge.app.globalKeys ? [h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('pb.keys')), h('small', {}, tr('pb.keysD'))),
       tg(S.settings.globalKeys, async (v) => { S.settings.globalKeys = v; save(); const busy = await bridge.app.globalKeys(v); if (busy && busy.length) toast(tr('pb.keysBusy', { keys: busy.join(', ') })); }))] : []),
     ...(bridge.win.mini ? [h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('pb.mini')), h('small', {}, tr('pb.miniD'))),
@@ -1699,23 +1761,24 @@ async function openSettings() {
     look.panel(() => S.current),
     ...(await playbackRows(tg)),
     ...updateRows(),
-    h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('set.layout')), h('small', {}, tr('set.layoutD'))), h('button', { class: 'chip-btn', onClick: () => layout.reset() }, tr('set.reset'))),
+    // desktop only: panel layout, the Jamendo key for the web search, keyboard shortcuts
+    isAndroid ? null : h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('set.layout')), h('small', {}, tr('set.layoutD'))), h('button', { class: 'chip-btn', onClick: () => layout.reset() }, tr('set.reset'))),
     h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('set.chime')), h('small', {}, tr('set.chimeD'))), tg(S.settings.chime, (v) => { S.settings.chime = v; save(); })),
     h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('set.bg')), h('small', {}, tr('set.bgD'))), tg(S.settings.bgAnalyze, (v) => { S.settings.bgAnalyze = v; save(); if (v) backgroundAnalyze(); })),
     h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('set.lyrics')), h('small', {}, tr('set.lyricsD'))), tg(S.settings.lyricsOnline, (v) => { S.settings.lyricsOnline = v; save(); lyricsCache.clear(); })),
     prefs ? h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('set.tray')), h('small', {}, tr('set.trayD'))), tg(prefs.closeToTray, (v) => bridge.app.setPref('closeToTray', v))) : null,
     prefs && prefs.autostart !== null && prefs.autostart !== undefined ? h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('set.auto')), h('small', {}, tr('set.autoD'))), tg(prefs.autostart, (v) => bridge.app.setPref('autostart', v))) : null,
     h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('tour.set')), h('small', {}, tr('tour.setD'))), h('button', { class: 'chip-btn', onClick: () => { closeModal(); setTimeout(() => tour.start(), 380); } }, tr('tour.setBtn'))),
-    h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('set.jam')), h('small', {}, tr('set.jamD'))), jam),
+    isAndroid ? null : h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('set.jam')), h('small', {}, tr('set.jamD'))), jam),
     dlRow(paths),
-    h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('set.keys')),
+    isAndroid ? null : h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('set.keys')),
       h('small', { html: tr('set.keysD') }))),
     h('div', { style: { display: 'flex', justifyContent: 'flex-end', marginTop: '12px' } }, h('button', { class: 'chip-btn', onClick: closeModal }, tr('set.done')))));
 }
 
 async function pickImport(kind) {
   try { importPaths(await bridge.library.pick(kind)); }
-  catch (e) { console.error(e); toast(tr('toast.importFail', { msg: e.message || e })); }
+  catch (e) { console.error(e); toast(tr(/permission/.test(e.message) ? 'and.denied' : 'toast.importFail', { msg: e.message || e })); }
 }
 
 function bindChrome() {
@@ -1727,7 +1790,6 @@ function bindChrome() {
   $('#coverEdit').onclick = (e) => { e.stopPropagation(); if (S.current) setTrackCover(S.current); };
   $('#coverEdit').addEventListener('dblclick', (e) => e.stopPropagation());
   $('#sessionBtn').onclick = openSession;
-  $('#importPlBtn').onclick = () => plImport.open();
   $('#helpBtn').onclick = () => tour.start();
   $('#npExpand').onclick = () => deep.show('info');
   $('#npLyrics').onclick = () => deep.show('lyrics');
@@ -1737,6 +1799,7 @@ function bindChrome() {
   $('#rackExport').onclick = () => openExport();
   $('#nowplaying').addEventListener('dblclick', (e) => { if (e.target.closest('.upnext, button, .panel-handle, .np-next-head')) return; deep.show(); });
   $('#deckCover').addEventListener('dblclick', () => deep.show());
+  $('.deck-left').addEventListener('click', () => { if (phone.matches && S.current) deep.show(); });
   $('#importBtn .cp-ico').innerHTML = ICON.kImport;
   $('#settingsBtn').onclick = openSettings;
   $('#importBtn').onclick = () => pickImport('files');
@@ -1770,6 +1833,15 @@ function bindChrome() {
     importPaths(paths);
   });
 
+  // Android «Back»: close what is on top, then return to the library, and only then hide the app (the music keeps playing)
+  document.addEventListener('sdsback', () => {
+    if (tour.isOpen) { tour.close(); return; }
+    if (document.activeElement === input || pop.classList.contains('open')) { input.value = ''; renderPop(); input.blur(); return; }
+    if (closeTop()) return;
+    if (S.view.type !== 'library') { setView({ type: 'library' }); return; }
+    bridge.app.minimize && bridge.app.minimize();
+  });
+
   // keyboard — matched by physical key (e.code), so it works in any layout and with Caps Lock
   addEventListener('keydown', (e) => {
     if (document.getElementById('splash')) return; // the first key only dismisses the intro
@@ -1778,15 +1850,7 @@ function bindChrome() {
     const k = e.key, c = e.code, ctrl = e.ctrlKey || e.metaKey;
     const modal = $('#modal').classList.contains('open');
     const overlay = visual.isOpen || deep.isOpen;
-    if (k === 'Escape') {
-      if (closePopover()) return;
-      if ($('.ctxmenu.open')) { closeCtx(); return; }
-      if (modal) { closeModal(); return; }
-      if (visual.isOpen) { visual.close(); return; }
-      if (deep.isOpen) { deep.close(); return; }
-      if (tools.isOpen) tools.close();
-      return;
-    }
+    if (k === 'Escape') { closeTop(); return; }
     if (modal || e.altKey) return;
     if ((ctrl && c === 'KeyK') || (!ctrl && k === '/')) { if (overlay) return; e.preventDefault(); input.focus(); input.select(); return; }
     if (ctrl && c === 'KeyS') { e.preventDefault(); if (deep.isOpen) deep.close(); if (visual.isOpen) visual.close(); openExport(); return; }
@@ -1823,6 +1887,7 @@ async function boot() {
   if (!THEMES.some((t) => t.key === S.settings.theme)) S.settings.theme = 'soft';
   document.documentElement.dataset.theme = S.settings.theme;
   document.documentElement.dataset.tone = toneOf(S.settings.theme);
+  document.documentElement.classList.toggle('android', isAndroid);
   const splash = runSplash({ ctx: engine.ctx, sound: S.settings.chime });
 
   viz = new Visualizer($('#viz'), engine.viz, () => engine.playing);
@@ -1837,7 +1902,8 @@ async function boot() {
   look = createAppearance({ S, save, bridge, toast, hslToRgb, rgbToHsl, coverColor, onChange: refreshCanvases,
     energy: () => (viz && engine.playing ? Math.min(1, viz.bass * 1.4) : 0) });
   layout = new Layout(S.settings, save);
-  tools = new Tools({ engine, ambient, settings: S.settings, save, onState: () => renderBadges() });
+  tools = new Tools({ engine, ambient, settings: S.settings, save, onState: (st) => { renderBadges(); $('#navTools').classList.toggle('fx-on', Object.values(st || {}).some(Boolean)); } });
+  $('#navTools').onclick = () => (tools.isOpen ? tools.close() : tools.open());
   deep = new DeepView({
     engine, getTrack: () => S.current, tracks: () => S.tracks, art, artistOf,
     playIds, playNext, next: () => next(), prev, toggle: togglePlay,
@@ -1871,8 +1937,6 @@ async function boot() {
   visual = new VisualMode({ engine, getTrack: () => S.current, artistOf, toggle: togglePlay });
   repair = createLibraryRepair({ S, bridge, save, art, artistOf, render, importPaths, pickImport, setView,
     refreshArt: () => (S.current ? coverChanged(S.current) : renderUpNext()) });
-  plImport = createPlaylistImport({ S, bridge, save, art, artistOf, createPlaylist, setView, openSearchView,
-    pickFiles: async () => { const p = await bridge.library.pick('files'); if (!p || !p.length) return false; await importPaths(p); return true; } });
   tour = createTour({ onDone: () => { S.settings.tourDone = true; save(); }, beforeStep: () => { closePopover(); if (deep.isOpen) deep.close(); if (visual.isOpen) visual.close(); if (tools.isOpen) tools.close(); } });
   applyTheme(S.settings.theme);
   bindDeck(); bindChrome(); syncModeBtns();
@@ -1895,7 +1959,9 @@ async function boot() {
   if (S.qi >= 0 && S.queue[S.qi]) loadCurrent(false, S.lastPos || 0);
   await splash;
   if (isMock && !S.tracks.length) await importPaths(await bridge.library.pick('files'));
-  if (!S.settings.tourDone && !/notour/.test(location.hash)) setTimeout(() => { if (!$('#modal').classList.contains('open')) tour.start(WELCOME); }, 900);
+  // first start on a phone: ask for «Music and audio» and bring in everything Android already knows
+  if (isAndroid && !S.tracks.length) { try { await importPaths(await bridge.library.pick('files')); } catch (e) { toast(tr(/permission/.test(e.message) ? 'and.denied' : 'toast.importFail', { msg: e.message })); } }
+  if (!S.settings.tourDone && !phone.matches && !/notour/.test(location.hash)) setTimeout(() => { if (!$('#modal').classList.contains('open')) tour.start(WELCOME); }, 900);
   setTimeout(() => backgroundAnalyze(), 6000);
 }
 boot();

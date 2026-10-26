@@ -282,10 +282,11 @@ export class AudioEngine extends EventTarget {
     return buf;
   }
   setReverb({ on = this.reverb.on, room = this.reverb.room, mix = this.reverb.mix } = {}) {
-    if (room !== this.reverb.room || !this.convolver.buffer) this.convolver.buffer = this.impulse(room);
     this.reverb = { on, room, mix };
     const t = this.ctx.currentTime;
     on = on && this.spaceOn;
+    // the room's impulse takes a while to synthesise (seconds of noise): only when the reverb is actually heard
+    if (on && this.irRoom !== room) { this.convolver.buffer = this.impulse(room); this.irRoom = room; }
     this.wet.gain.setTargetAtTime(on ? mix * 1.4 : 0, t, .08);
     this.out.gain.setTargetAtTime(on ? 1 - mix * .35 : 1, t, .08); // keep the sum from getting louder
   }

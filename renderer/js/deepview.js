@@ -4,10 +4,11 @@
  * into place while the backdrop (the cover itself, blurred) fades in and the details
  * rise in a short stagger. Closing is the same motion in reverse, a bit faster.
  */
-import { $, h, esc, fmt, clamp } from './ui.js';
+import { $, h, esc, fmt, clamp, dragValue } from './ui.js';
 import { t as tr, tn } from './i18n.js';
 import { ICON } from './icons.js';
 import { WaveSeek } from './visualizer.js';
+import { swipeToClose, slideAway } from './gestures.js';
 import { findSimilar, analyzed, quality } from './smart.js';
 import { parseLyrics, lineAt, wordAt } from './lyrics.js';
 
@@ -62,6 +63,9 @@ export class DeepView {
     if (mode === 'lyrics') this.loadLyrics();
   }
 
+  /** the cover Deep View grows out of and returns to */
+  origin() { const f = $('#coverFrame'); return f.offsetParent ? f : $('#deckCover'); }
+
   show(mode) {
     if (mode) this.mode = mode;
     if (this.open && mode) return this.setMode(mode);
@@ -71,18 +75,22 @@ export class DeepView {
     const el = this.el = this.build(t);
     document.body.append(el);
     document.body.classList.add('deep-open');
-    const src = $('#coverFrame').getBoundingClientRect();
+    // pull Deep View down to go back to the list (from the top bar, the cover, or anywhere scrolled to the top)
+    swipeToClose(el, { threshold: 140, onClose: (dy) => slideAway(el, dy, () => this.close(true)) });
+    const from = this.origin(), src = from.getBoundingClientRect();
     const cover = el.querySelector('.dv-cover');
     const dst = cover.getBoundingClientRect();
     const items = [...el.querySelectorAll('.dv-in')];
-    const done = () => { if (this.closing) return; this.busy = false; el.querySelector('.dv-close').focus({ preventScroll: true }); };
+    const done = () => { if (this.closing) return; this.busy = false; el.classList.add('settled'); el.querySelector('.dv-close').focus({ preventScroll: true }); };
     if (reduced()) { el.classList.add('shown'); done(); }
     else {
-      $('#coverFrame').style.visibility = 'hidden';
+      from.style.visibility = 'hidden';
       el.querySelector('.dv-bg').animate([{ opacity: 0 }, { opacity: 1 }], { duration: 420, easing: 'ease-out', fill: 'both' });
       const dx = src.left - dst.left, dy = src.top - dst.top, s = src.width / dst.width;
-      cover.animate([{ transform: `translate(${dx}px, ${dy}px) scale(${s})`, borderRadius: `${24 / s}px` }, { transform: 'none', borderRadius: '30px' }],
-        { duration: 640, easing: ENTER, fill: 'both' }).finished.catch(() => {}).then(() => { if (!this.closing) $('#coverFrame').style.visibility = ''; done(); });
+      // a phone repaints a big cover on every frame of a changing corner radius: there it flies by transform alone
+      const lite = matchMedia('(max-width: 760px)').matches;
+      cover.animate(lite ? [{ transform: `translate(${dx}px, ${dy}px) scale(${s})` }, { transform: 'none' }] : [{ transform: `translate(${dx}px, ${dy}px) scale(${s})`, borderRadius: `${24 / s}px` }, { transform: 'none', borderRadius: '30px' }],
+        { duration: 640, easing: ENTER, fill: 'both' }).finished.catch(() => {}).then(() => { if (!this.closing) from.style.visibility = ''; done(); });
       items.forEach((n, i) => n.animate([{ opacity: 0, transform: 'translateY(18px)' }, { opacity: 1, transform: 'none' }],
         { duration: 520, delay: 140 + i * 45, easing: ENTER, fill: 'both' }));
       el.classList.add('shown');
@@ -92,7 +100,8 @@ export class DeepView {
     this.api.ensureAnalysis(t);
   }
 
-  close() {
+  /** @param gone the overlay already left the screen (pulled down): just clean up */
+  close(gone) {
     this.tv = false;
     if (!this.open || this.closing) return;
     const el = this.el;
@@ -100,14 +109,16 @@ export class DeepView {
     if (this.busy) el.getAnimations({ subtree: true }).forEach((a) => { if (a instanceof CSSAnimation) return; try { a.finish(); } catch {} });
     this.busy = true; this.closing = true;
     if (this.onFocus) { removeEventListener('focus', this.onFocus); this.onFocus = null; this.awaitPaste = null; }
-    const finish = () => { if (this.el !== el) return; el.remove(); this.el = null; this.open = false; this.busy = false; this.closing = false; document.body.classList.remove('deep-open'); cancelAnimationFrame(this.raf); $('#coverFrame').style.visibility = ''; };
-    if (reduced()) return finish();
-    const cover = el.querySelector('.dv-cover'), dst = $('#coverFrame').getBoundingClientRect(), src = cover.getBoundingClientRect();
+    const to = this.origin();
+    const finish = () => { if (this.el !== el) return; el.remove(); this.el = null; this.open = false; this.busy = false; this.closing = false; document.body.classList.remove('deep-open'); cancelAnimationFrame(this.raf); to.style.visibility = ''; };
+    if (reduced() || gone) return finish();
+    const cover = el.querySelector('.dv-cover'), dst = to.getBoundingClientRect(), src = cover.getBoundingClientRect();
     const dx = dst.left - src.left, dy = dst.top - src.top, s = dst.width / src.width;
     [...el.querySelectorAll('.dv-in')].forEach((n) => n.animate([{ opacity: 1 }, { opacity: 0, transform: 'translateY(10px)' }], { duration: 180, easing: EXIT, fill: 'both' }));
     el.querySelector('.dv-bg').animate([{ opacity: 1 }, { opacity: 0 }], { duration: 380, delay: 80, easing: 'ease-in', fill: 'both' });
-    $('#coverFrame').style.visibility = 'hidden';
-    cover.animate([{ transform: 'none' }, { transform: `translate(${dx}px, ${dy}px) scale(${s})`, borderRadius: `${24 / s}px` }],
+    to.style.visibility = 'hidden';
+    const lite = matchMedia('(max-width: 760px)').matches;
+    cover.animate(lite ? [{ transform: 'none' }, { transform: `translate(${dx}px, ${dy}px) scale(${s})` }] : [{ transform: 'none' }, { transform: `translate(${dx}px, ${dy}px) scale(${s})`, borderRadius: `${24 / s}px` }],
       { duration: 440, easing: 'cubic-bezier(.45,0,.2,1)', fill: 'both' }).finished.catch(() => {}).then(finish);
     // never leave the overlay stuck if the animation is interrupted (e.g. the cover was rebuilt mid-close)
     setTimeout(() => { if (this.closing && this.el === el) finish(); }, 1200);
@@ -177,9 +188,12 @@ export class DeepView {
     el.addEventListener('dblclick', (e) => { if (e.target.closest('.dv-cover, .dv-bg, .dv-top')) this.close(); });
     this.wave = new WaveSeek(seek.querySelector('canvas'), { onDark: true });
     this.wave.set(t.peaks || null);
-    seek.addEventListener('pointerdown', (e) => {
-      const r = seek.getBoundingClientRect();
-      a.engine.seek(clamp((e.clientX - r.left) / r.width, 0, 1) * a.engine.duration);
+    const pAt = (x) => { const r = seek.getBoundingClientRect(); return clamp((x - r.left) / r.width, 0, 1); };
+    this.dragP = null;
+    dragValue(seek, {
+      onStart: (e) => { this.dragP = pAt(e.clientX); },
+      onMove: (e) => { this.dragP = pAt(e.clientX); },
+      onEnd: (e) => { if (this.dragP !== null) { if (e && e.type === 'pointerup') this.dragP = pAt(e.clientX); a.engine.seek(this.dragP * a.engine.duration); } this.dragP = null; }
     });
     this.ui = { cur, dur };
     this.refreshMeta(el); this.refreshAnalysis(el);
@@ -195,8 +209,9 @@ export class DeepView {
       // schedule first: one bad frame must never stop the clock, the waveform and the lyrics for good
       this.raf = requestAnimationFrame(tick);
       const e = this.api.engine, d = e.duration;
-      this.wave.progress(d ? e.time / d : 0);
-      this.ui.cur.textContent = fmt(e.time);
+      const time = this.dragP !== null && this.dragP !== undefined ? this.dragP * d : e.time; // while dragging: where the finger is
+      this.wave.progress(d ? time / d : 0);
+      this.ui.cur.textContent = fmt(time);
       if (this.mode === 'lyrics') { try { this.followLyrics(e.time); } catch (err) { console.warn('lyrics:', err); } }
     };
     this.raf = requestAnimationFrame(tick);

@@ -1,5 +1,6 @@
 // Small DOM + UI helpers shared by all modules.
 import { t } from './i18n.js';
+import { swipeToClose, slideAway } from './gestures.js';
 export const $ = (s, r = document) => r.querySelector(s);
 export const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
@@ -83,6 +84,7 @@ export function toast(content, { timeout = 3200, actions = null } = {}) {
 const menu = () => $('#ctxmenu');
 export function ctxMenu(x, y, items) {
   const m = menu();
+  if (!m.dataset.swipe) { m.dataset.swipe = '1'; swipeToClose(m, { onClose: (dy) => slideAway(m, dy, closeCtx) }); }
   m.innerHTML = '';
   for (const it of items) {
     if (it === '-') { m.append(h('hr')); continue; }
@@ -103,6 +105,8 @@ export function openModal(card) {
   const m = $('#modal');
   m.innerHTML = '';
   m.append(card);
+  // on a phone the dialog is a sheet: pull it down to close
+  swipeToClose(card, { onClose: (dy) => slideAway(card, dy, closeModal) });
   requestAnimationFrame(() => m.classList.add('open'));
   m.onclick = (e) => { if (e.target === m) closeModal(); };
 }

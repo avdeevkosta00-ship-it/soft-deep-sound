@@ -7,6 +7,7 @@ import { ICON } from './icons.js';
 import { LAYERS } from './ambient.js';
 import { EQ_FREQS } from './audio-engine.js';
 import { t } from './i18n.js';
+import { swipeToClose, slideAway } from './gestures.js';
 
 
 
@@ -65,6 +66,8 @@ export class Tools {
   constructor({ engine, ambient, settings, save, onState }) {
     Object.assign(this, { engine, ambient, settings, save, onState });
     this.rack = $('#rack'); this.body = $('#rackBody'); this.btn = $('#toolsBtn');
+    // the rack is a sheet on a phone: pull it down by its tabs (or anywhere while it is scrolled to the top)
+    swipeToClose(this.rack, { onClose: (dy) => slideAway(this.rack, dy, () => this.close()) });
     this.current = null;
     this.panels = {};
     this.btn.onclick = () => this.toggle();

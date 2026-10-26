@@ -1,0 +1,12 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Soft&amp;Deep Sound</string>
+    <string name="title_activity_main">Soft&amp;Deep Sound</string>
+    <string name="package_name">com.konstantin.softdeepsound</string>
+    <string name="custom_url_scheme">com.konstantin.softdeepsound</string>
+    <string name="playback_channel">Playback</string>
+    <string name="cmd_prev">Previous</string>
+    <string name="cmd_play">Play</string>
+    <string name="cmd_pause">Pause</string>
+    <string name="cmd_next">Next</string>
+</resources>

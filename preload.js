@@ -39,17 +39,6 @@ contextBridge.exposeInMainWorld('sds', {
     save: (p, text, replace) => ipcRenderer.invoke('lyrics:save', p, text, !!replace),
     clipboard: () => ipcRenderer.invoke('lyrics:clipboard')
   },
-  importer: {
-    deezer: (url) => ipcRenderer.invoke('import:deezer', url),
-    spotify: {
-      status: (clientId) => ipcRenderer.invoke('spotify:status', clientId),
-      login: (clientId) => ipcRenderer.invoke('spotify:login', clientId),
-      cancel: () => ipcRenderer.invoke('spotify:cancel'),
-      logout: () => ipcRenderer.invoke('spotify:logout'),
-      playlists: () => ipcRenderer.invoke('spotify:playlists'),
-      tracks: (id) => ipcRenderer.invoke('spotify:tracks', id)
-    }
-  },
   app: {
     paths: () => ipcRenderer.invoke('app:paths'),
     globalKeys: (on) => ipcRenderer.invoke('keys:global', on),

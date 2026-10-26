@@ -470,6 +470,7 @@ body.playing .pp.b { d: path("M13.7 5 L17.5 5 L17.5 19 L13.7 19 Z"); }
 .seek:hover .seek-thumb, .seek.drag .seek-thumb { transform: scale(1); }
 .seek-tip { position: absolute; bottom: calc(100% + 6px); left: 0; transform: translateX(-50%); padding: 3px 7px; border-radius: 7px; background: var(--lcd); color: var(--lcd-ink); font-family: var(--mono); font-size: 10.5px; opacity: 0; pointer-events: none; transition: opacity var(--t-fast); }
 .seek:hover .seek-tip, .seek.drag .seek-tip { opacity: 1; }
+.seek, .dv-seek { touch-action: none; }
 
 .deck-right { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
 .vol-w1, .vol-w2 { transition: opacity var(--t-fast); }
@@ -672,6 +673,8 @@ body.playing .pp.b { d: path("M13.7 5 L17.5 5 L17.5 19 L13.7 19 Z"); }
 .wordmark { position: relative; text-align: center; color: #141824; }
 .wm-row { display: flex; align-items: baseline; justify-content: center; font-size: 104px; font-weight: 250; letter-spacing: -.055em; line-height: 1; }
 .wm-word { display: inline-flex; }
+/* until splash.js has cut the words into letters, the plain text would show and then play again */
+#splash [data-split]:not(.split) { visibility: hidden; }
 .wm-row .ch, .wm-sound .ch { display: inline-block; opacity: 0; transform: translateY(46%) rotate(4deg); filter: blur(14px); animation: chIn 900ms var(--ease) forwards; animation-delay: calc(350ms + var(--i) * 55ms); }
 .wm-word:last-child .ch { font-weight: 650; }
 @keyframes chIn { to { opacity: 1; transform: none; filter: none; } }
@@ -711,6 +714,7 @@ body.playing .pp.b { d: path("M13.7 5 L17.5 5 L17.5 19 L13.7 19 Z"); }
 #shapes { position: fixed; inset: 0; width: 100%; height: 100%; z-index: -1; pointer-events: none; }
 .panel { position: relative; transition: opacity var(--t-med); }
 .panel.panel-hidden { display: none !important; }
+@media (max-width: 760px) { .sidebar.panel-hidden { display: flex !important; } }
 #app.layout-anim .panel { transition: transform 420ms var(--ease); }
 
 /* ---------- theme picker ---------- */
@@ -942,6 +946,8 @@ body.playing .cover-frame { box-shadow: inset 0 1px 0 var(--hl), inset 0 -2px 4p
 .dv-bg { position: absolute; inset: 0; overflow: hidden; z-index: -1; background: #07080b; }
 .dv-bg-art { position: absolute; inset: -12%; background-size: cover !important; background-position: center !important; filter: blur(70px) saturate(1.5) brightness(.55); transform: scale(1.15); animation: dvDrift 40s ease-in-out infinite alternate; }
 .dv-bg-tint { position: absolute; inset: 0; background: radial-gradient(70% 90% at 25% 45%, color-mix(in srgb, var(--pulse) 26%, transparent), transparent 70%), linear-gradient(180deg, rgba(5,6,10,.25), rgba(5,6,10,.72)); }
+/* the background starts drifting once Deep View has opened: during the opening every frame counts */
+.deep:not(.settled) .dv-bg-art { animation-play-state: paused; }
 @keyframes dvDrift { to { transform: scale(1.25) translate(-2%, 1.5%) rotate(2deg); } }
 .dv-top { display: flex; align-items: center; gap: 16px; height: 40px; }
 .dv-top .v-kicker { color: rgba(255,255,255,.7); margin: 0; }
@@ -1142,6 +1148,8 @@ body.deep-open #app { filter: blur(6px) brightness(.8); transition: filter 400ms
 /* Soft → Deep: light goes out; Deep → Soft: light comes on (View Transitions) */
 ::view-transition-old(root), ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
 html.sd-vt::view-transition-group(root) { animation-duration: 900ms; }
+/* while the light spreads, the page under it holds still: no colour transitions, no canvas frames (they pause on .sd-vt) */
+html.sd-vt *, html.sd-vt *::before, html.sd-vt *::after { transition: none !important; }
 
 /* fast page transitions */
 .view.enter { animation: viewIn 260ms 40ms cubic-bezier(.22, .9, .26, 1) both; }
@@ -1193,88 +1201,8 @@ body.ready #app > .nowplaying { animation-delay: 450ms; }
 }
 .sp-via { margin: -2px 10px 6px; padding: 6px 10px; border-radius: 8px; font-size: 11.5px; color: var(--ink-2); background: var(--groove); }
 
-/* ===================== v1.10: playlist import ===================== */
-.nav-import svg { overflow: visible; }
-.pi-card { width: min(760px, calc(100vw - 40px)); max-height: calc(100vh - 48px); overflow: auto; }
-.pi-card h3 { margin-bottom: 12px; }
-.pi-sources { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 14px; }
-.pi-sources .ss-ico svg { width: 17px; height: 17px; }
-.pi-pane { min-height: 196px; }
-.pi-note { color: var(--ink-3); font-size: 11.5px; line-height: 1.45; }
-.pi-small { font-size: 11.5px; line-height: 1.5; margin-top: 12px; }
-.pi-row-in { display: flex; gap: 8px; align-items: center; }
-.pi-row-in .set-input { flex: 1; height: 38px; }
-.pi-row-in .chip-btn { height: 38px; padding: 0 18px; }
-.pi-hints { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 8px; font-size: 12px; color: var(--ink-2); }
-.pi-hints li { padding-left: 16px; position: relative; line-height: 1.45; }
-.pi-hints li::before { content: ""; position: absolute; left: 2px; top: .62em; width: 6px; height: 6px; border-radius: 2px; background: var(--accent); opacity: .7; }
-.pi-hints b { color: var(--ink); }
-.pi-row-act { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
-.pi-row-act .grow, .pi-extra .grow { flex: 1; }
-.pi-steps { margin: 0; padding: 0; list-style: none; counter-reset: st; display: grid; gap: 12px; }
-.pi-steps li { counter-increment: st; position: relative; padding-left: 34px; display: grid; gap: 8px; font-size: 12.5px; color: var(--ink-2); }
-.pi-steps li::before { content: counter(st); position: absolute; left: 0; top: -2px; width: 22px; height: 22px; border-radius: 7px; display: grid; place-items: center; font-family: var(--mono); font-size: 11px; color: var(--lcd-ink); background: var(--lcd); }
-.pi-steps li > span { line-height: 1.45; }
-.pi-steps .text-btn { justify-self: start; padding: 0; }
-.pi-code { display: flex; align-items: center; gap: 8px; }
-.pi-code code { flex: 1; font-family: var(--mono); font-size: 12px; padding: 8px 10px; border-radius: 9px; background: var(--groove); box-shadow: inset 0 1px 2px var(--groove-edge); color: var(--ink); user-select: all; }
-.pi-sp-status { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-2); }
-.pi-sp-head { display: flex; justify-content: space-between; align-items: center; font-size: 12.5px; color: var(--ink-2); margin-bottom: 8px; }
-.pi-pl-list { max-height: 300px; overflow: auto; display: grid; gap: 2px; margin: 0 -6px; }
-.pi-pl { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 12px; align-items: center; text-align: left; padding: 6px; border-radius: 12px; transition: background var(--t-fast); }
-.pi-pl:hover { background: var(--hover); }
-.pi-pl.locked { opacity: .55; }
-.pi-pl-art { width: 40px; height: 40px; border-radius: 9px; background: var(--lcd) center/cover; display: grid; place-items: center; color: var(--accent); }
-.pi-pl-art svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
-.pi-pl-meta, .pi-src-meta { min-width: 0; display: grid; gap: 1px; }
-.pi-pl-meta b, .pi-src-meta b { font-size: 13px; font-weight: 650; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pi-pl-meta small, .pi-src-meta small { font-size: 11.5px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pi-lock { color: var(--ink-3); }
-.pi-lock svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7; }
-.pi-wait { display: flex; align-items: center; gap: 10px; padding: 18px 8px; color: var(--ink-3); font-size: 12.5px; }
 .pi-spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--groove-edge); border-top-color: var(--accent); animation: piSpin .8s linear infinite; flex: none; }
 @keyframes piSpin { to { transform: rotate(360deg); } }
-.pi-file-grid { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 12px; }
-.pi-drop { border-radius: 16px; padding: 16px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 6px; cursor: pointer;
-  border: 1.5px dashed var(--line); background: var(--groove); transition: border-color var(--t-fast), background var(--t-fast), transform var(--t-fast); min-height: 150px; }
-.pi-drop:hover, .pi-drop:focus-visible, .pi-drop.over { border-color: var(--accent); background: var(--accent-soft); outline: none; }
-.pi-drop.over { transform: scale(1.015); }
-.pi-drop b { font-size: 12.5px; color: var(--ink); } .pi-drop small { font-family: var(--mono); font-size: 10.5px; letter-spacing: .14em; color: var(--ink-3); }
-.pi-paste { display: flex; flex-direction: column; min-width: 0; }
-.pi-text { flex: 1; min-height: 116px; resize: vertical; border: 0; outline: 0; border-radius: 14px; padding: 10px 12px; background: var(--groove); box-shadow: inset 0 1px 2px var(--groove-edge); color: var(--ink); font: 12.5px/1.55 var(--font); }
-.pi-text:focus { box-shadow: inset 0 0 0 1.5px var(--accent); }
-.pi-text::placeholder { color: var(--ink-3); }
-.text-btn.inline { padding: 0; font-size: inherit; color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
-.pi-busy { padding: 26px 2px 10px; }
-.pi-busy .ex-prog-row { align-items: center; }
-.pi-sum { display: flex; gap: 12px; align-items: baseline; margin: -4px 0 14px; color: var(--ink-3); font-size: 12.5px; }
-.pi-sum b { color: var(--ink); font-size: 15px; }
-.pi-card .ss-lbl { display: block; margin-bottom: 6px; }
-.pi-name { margin-bottom: 14px; height: 38px; }
-.pi-seg { display: inline-flex; margin-bottom: 10px; }
-.pi-n { font-style: normal; font-family: var(--mono); font-size: 10.5px; margin-left: 7px; padding: 1px 6px; border-radius: 6px; background: var(--groove); color: var(--ink-3); }
-.pi-n.warn { color: var(--accent); }
-.pi-res { max-height: 300px; overflow: auto; display: grid; gap: 2px; margin: 0 -6px; }
-.pi-item { display: grid; grid-template-columns: 22px minmax(0, 1fr) 18px minmax(0, 1fr) 44px; gap: 10px; align-items: center; padding: 6px; border-radius: 11px; animation: rowIn 300ms var(--ease) both; animation-delay: calc(var(--i) * 18ms); }
-.pi-item:hover { background: var(--hover); }
-.pi-item.missing { grid-template-columns: 22px minmax(0, 1fr) 0 auto auto; }
-.pi-local { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 10px; align-items: center; min-width: 0; }
-.pi-local .thumb { width: 32px; height: 32px; border-radius: 8px; }
-.pi-arrow { color: var(--ink-4); text-align: center; }
-.pi-score { font-size: 11px; color: var(--ink-3); text-align: right; }
-.pi-dur { font-size: 11px; color: var(--ink-3); }
-.pi-dot { width: 8px; height: 8px; border-radius: 50%; margin-left: 7px; border: 1.5px solid var(--ink-4); }
-.pi-chk { width: 20px; height: 20px; border-radius: 6px; display: grid; place-items: center; color: transparent; background: var(--groove); box-shadow: inset 0 0 0 1.5px var(--groove-edge); transition: background var(--t-fast), color var(--t-fast); }
-.pi-chk.on { background: var(--accent); color: var(--on-accent); box-shadow: none; }
-.pi-chk svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
-.pi-empty { padding: 20px 8px; color: var(--ink-3); font-size: 12.5px; }
-.pi-extra { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
-.pi-extra .pi-note { flex: 1 1 260px; }
-.pi-extra .grow { display: none; }
-.chip-btn.sm { height: 26px; padding: 0 10px; font-size: 11.5px; }
-.pi-missing-note { margin: 0 0 14px; align-items: center; flex-wrap: wrap; }
-.pi-missing-note .grow { flex: 1; }
-@media (max-width: 760px) { .pi-file-grid { grid-template-columns: 1fr; } .pi-item { grid-template-columns: 22px minmax(0, 1fr) 0 minmax(0, 1fr) 40px; } .pi-arrow { display: none; } }
 
 /* ===================== v1.10: tour ===================== */
 .tour { position: fixed; inset: 0; z-index: 300; opacity: 0; transition: opacity 260ms var(--ease); }
@@ -1544,3 +1472,318 @@ body.mini .mini-bar { position: fixed; inset: 0; display: grid; grid-template-co
 .tm-times b { color: var(--ink); margin-left: 4px; }
 .upd-status { display: block; color: var(--ink-3); }
 .set-select { font-family: var(--font); }
+
+/* ======================= phone (Android app, or a narrow window) =======================
+   One column: titlebar, the list, a compact player, and the sidebar's nav as a bottom tab bar.
+   The «now playing» panel is replaced by Deep View (tap the cover/title in the player). */
+@media (max-width: 760px) {
+  #app {
+    grid-template-columns: minmax(0, 1fr) !important; grid-template-rows: auto minmax(0, 1fr) auto auto;
+    gap: 8px; padding: calc(env(safe-area-inset-top) + 6px) 8px calc(env(safe-area-inset-bottom) + 8px);
+  }
+  .panel-handle, .splitter, .hud-frame, .bass-glow { display: none !important; }
+  .wm-row { font-size: 17vw; } .wm-amp { font-size: 19vw; margin: 0 3vw 0 1vw; }
+
+  /* titlebar: logo mark, search, Soft/Deep and settings */
+  .titlebar { grid-template-columns: max-content minmax(0, 1fr) max-content; gap: 8px; padding-top: 0; }
+  .brand { padding: 2px; } .brand-text { display: none; }
+  .search kbd, .search-scope { display: none; }
+  .search-pop { position: fixed; left: 8px; right: 8px; width: auto; }
+  .title-actions { gap: 4px; }
+  #themeBtn, #layoutBtn, #helpBtn, .win-ctrls { display: none; }
+  .sp-web kbd { display: none; } /* key hints mean nothing on a touch keyboard */
+  html.android .ap-bg.add { display: none; } /* own backgrounds are not on the phone yet */
+
+  /* the list takes the whole screen */
+  .content { grid-column: 1 !important; grid-row: 2 !important; }
+  .nowplaying { display: none !important; }
+  .view { padding: 16px 12px 20px; }
+  .v-head { gap: 12px; margin-bottom: 14px; }
+  .v-art { width: 72px; height: 72px; border-radius: 16px; }
+  .v-title { font-size: 28px; }
+  .v-actions { margin-left: 0; justify-content: flex-start; width: 100%; }
+  .tl-head { display: none; }
+  .row { grid-template-columns: 46px minmax(0, 1fr) auto 34px; gap: 10px; height: 60px; padding: 0 6px; }
+  .row .r-num { display: none; }
+  .row .thumb { width: 46px; height: 46px; }
+  .r-album, .r-bpm { display: none; }
+  .r-act { opacity: 1; } .r-act [data-a="next"] { display: none; }
+  .r-act button { width: 34px; height: 34px; }
+  .empty-card { padding: 28px 20px; }
+
+  /* compact player: cover + title | prev · play · next, the timeline below */
+  .deck { grid-column: 1 !important; grid-row: 3 !important; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "left tr" "tl tl"; gap: 4px 10px; padding: 10px 12px 8px; }
+  .deck-left { grid-area: left; cursor: pointer; }
+  .deck-center { display: contents; }
+  .transport { grid-area: tr; gap: 8px; }
+  .timeline { grid-area: tl; width: 100%; grid-template-columns: 38px 1fr 38px; gap: 6px; }
+  #shuffleBtn, #repeatBtn, .transport-sep, .tools-btn, .deck-right { display: none; }
+  .tbtn { width: 38px; height: 38px; }
+  .play-btn { width: 50px; height: 50px; }
+  .deck-cover { width: 46px; height: 46px; }
+  [data-tone] .disc-ring { width: 70px; height: 70px; margin: -35px 0 0 -35px; }
+
+  /* the sidebar becomes a bottom tab bar */
+  .sidebar { grid-column: 1 !important; grid-row: 4 !important; padding: 6px; }
+  .side-head, .playlists, .import-card, .nav-item[data-view="health"] { display: none; }
+  .nav { flex-direction: row; gap: 2px; }
+  .nav-item { flex: 1 1 0; min-width: 0; flex-direction: column; gap: 4px; height: auto; padding: 8px 2px 6px; font-size: 10.5px; text-align: center; justify-content: center; }
+  .nav-item span { flex: none; width: 100%; }
+  .nav-item svg { width: 20px; height: 20px; }
+  .nav-item em { display: none; }
+  .nav-item.active::before { display: none; }
+
+  /* overlays fit the phone */
+  #toasts { top: calc(env(safe-area-inset-top) + 64px); width: calc(100vw - 16px); }
+  .toast { max-width: 100%; flex-wrap: wrap; }
+  .modal-card { width: calc(100vw - 16px); max-height: calc(100vh - 32px); padding: 18px 16px; }
+  .set-row { flex-wrap: wrap; }
+  .rack { width: calc(100vw - 16px); }
+}
+
+/* Deep View on a phone: cover and controls on top, everything else scrolls below;
+   in «Lyrics» the cover steps aside so the text gets the screen, controls stay at the bottom */
+@media (max-width: 760px) {
+  .deep { padding: calc(env(safe-area-inset-top) + 12px) 16px calc(env(safe-area-inset-bottom) + 14px); }
+  .dv-hint { display: none; } .dv-close { margin-left: auto; }
+  .dv-main { grid-template-columns: minmax(0, 1fr); align-items: start; gap: 22px; overflow: auto; scrollbar-width: none; }
+  .dv-cover, .dv-transport { width: min(100%, 46vh); }
+  .dv-cover { border-radius: 24px; }
+  .dv-info { max-height: none; overflow: visible; padding: 0 0 12px; }
+  .dv-title { font-size: 30px; }
+  .dv-bar { grid-template-columns: 76px 1fr 30px; }
+  .deep.mode-lyrics .dv-main { grid-template-rows: minmax(0, 1fr) auto; overflow: hidden; gap: 12px; }
+  .deep.mode-lyrics .dv-info { order: 1; min-height: 0; height: 100%; overflow: hidden; }
+  .deep.mode-lyrics .dv-left { order: 2; }
+  .deep.mode-lyrics .dv-cover { display: none; }
+  .ly-lines { padding: 12vh 4% 24vh 0; }
+  .deep.mode-lyrics .ly-foot { flex-wrap: wrap; gap: 6px 12px; padding: 0; letter-spacing: .1em; }
+  .deep.mode-lyrics .ly-foot > * { white-space: nowrap; }
+}
+
+/* ======================= touch screens =======================
+   No grey/blue flash on tap, no hover state left «stuck» after a tap, and a press you can feel instead */
+* { -webkit-tap-highlight-color: transparent; }
+@media (hover: none) {
+  .row:hover, .nav-item:hover, .pl-item:hover, .un-item:hover, .dv-simrow:hover { background: transparent; }
+  .row.sel:hover { background: var(--sel); }
+  .nav-item.active:hover { background: var(--sel); }
+  .tbtn:hover, .play-btn:hover, .brand:hover { transform: none; }
+  .row:hover .r-num .n { opacity: 1; } .row:hover .r-num .play-mini { opacity: 0; }
+  .row, .nav-item, .chip-btn, .chrome-pill, .seg button, .icon-btn, .tbtn, .play-btn, .deck-left, .dv-simrow { transition: transform 160ms var(--ease), background var(--t-fast), color var(--t-fast), box-shadow var(--t-fast); }
+  .row:active, .dv-simrow:active { background: var(--hover); transform: scale(.985); }
+  .nav-item:active, .chip-btn:active, .chrome-pill:active, .seg button:active, .icon-btn:active, .deck-left:active { transform: scale(.94); }
+  .tbtn:active { transform: scale(.9); }
+  .play-btn:active { transform: scale(.92); }
+}
+@media (max-width: 760px) {
+  /* the heavy parts of the desktop motion: a blurred whole page behind Deep View, a blur on every view change */
+  body.deep-open #app { filter: none; }
+  .view.enter { animation: viewInPhone 320ms var(--ease) both; }
+  /* the tab you are on: its pill grows in */
+  .nav-item.active { animation: tabIn 320ms var(--ease-spring, var(--ease)) both; }
+}
+@keyframes viewInPhone { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+@keyframes tabIn { from { transform: scale(.88); } to { transform: none; } }
+@media (max-width: 760px) {
+  /* Deep View's blurred cover: blurred small and stretched — the same look for a fraction of the work (≈100 fps instead of ≈50 on a phone) */
+  .dv-bg-art { inset: auto; left: 0; top: 0; width: 25%; height: 25%; transform-origin: 0 0; transform: scale(4.4); filter: blur(16px) saturate(1.5) brightness(.55); animation-name: dvDriftPhone; }
+}
+@keyframes dvDriftPhone { from { transform: scale(4.4); } to { transform: scale(4.9) translate(-1.5%, 1%) rotate(2deg); } }
+/* the phone's Soft ↔ Deep veil (dipToTheme in app.js): above everything, never in the way of a tap */
+.theme-veil { position: fixed; inset: 0; z-index: 400; pointer-events: none; opacity: 0; will-change: opacity; }
+@media (max-width: 760px) {
+  /* long lists on a phone: rows off screen are not laid out or painted until scrolled to,
+     and only the first screenful plays the «rows come in» animation (the rest appear out of sight anyway) */
+  .row { content-visibility: auto; contain-intrinsic-size: auto 60px; }
+  .row:nth-child(n+14) { animation: none; }
+}
+
+/* ======================= phone: layout pass =======================
+   Room from the status bar and the gesture/nav bar, buttons in even rows, sheets that come up from the bottom */
+.nav-s { display: none; }
+@media (max-width: 760px) {
+  #app { gap: 10px; padding: calc(env(safe-area-inset-top) + 10px) 10px calc(env(safe-area-inset-bottom) + 10px); }
+
+  /* titlebar: one even row — mark, search, Soft/Deep, settings — all 40px tall */
+  .titlebar { gap: 8px; min-height: 44px; }
+  .brand { width: 40px; height: 40px; justify-content: center; padding: 0; }
+  .search { height: 40px; }
+  .search input { font-size: 14px; }
+  .title-actions { gap: 6px; }
+  #settingsBtn { width: 40px; height: 40px; }
+  .sd-switch { height: 36px; }
+
+  /* view header: title, then the controls as an even grid instead of pills of every width */
+  .view { padding: 18px 14px 24px; }
+  .v-head { display: block; margin-bottom: 12px; }
+  .v-head > .v-art { margin-bottom: 12px; }
+  .v-title { font-size: 30px; }
+  .v-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; width: 100%; }
+  .v-actions > .seg { flex: 1 1 100%; overflow-x: auto; scrollbar-width: none; }
+  .v-actions > .seg::-webkit-scrollbar { display: none; }
+  .v-actions > .seg button { flex: 1 0 auto; height: 32px; }
+  .v-actions > .chrome-pill { flex: 1 1 40%; justify-content: center; height: 44px; }
+  .tl-head + .row, .v-head + * { margin-top: 0; }
+
+  /* the player strip: a clean square cover instead of the spinning ring, controls centred on the cover row */
+  .deck { padding: 10px 12px 8px; align-items: center; }
+  /* (html… — themes-sd.css comes later and would win at equal weight) */
+  html[data-tone] .deck .disc-ring { display: none; }
+  html[data-tone] .deck .deck-cover { border-radius: 12px; animation: none; }
+  html[data-tone] .deck .deck-cover::before, html[data-tone] .deck .deck-cover::after { display: none; }
+  html[data-tone] .deck .disc-wrap { margin-left: 0; }
+  .deck-cover { width: 48px; height: 48px; border-radius: 12px; }
+  .deck-title { font-size: 14px; }
+  .transport { gap: 6px; }
+  .tbtn { width: 40px; height: 40px; }
+  .play-btn { width: 52px; height: 52px; }
+  .play-bezel { inset: -4px; }
+
+  /* bottom tab bar: one short word under each icon */
+  .sidebar { padding: 4px; }
+  .nav { gap: 4px; }
+  .nav-item > span:not(.nav-s) { display: none; }
+  .nav-item > .nav-s { display: block; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .nav-item { height: 54px; padding: 6px 2px; gap: 3px; font-size: 11px; border-radius: 14px; }
+
+  /* the on-screen keyboard is up: the list gets the room */
+  html.kb .deck, html.kb .sidebar { display: none !important; }
+  html.kb #app { grid-template-rows: auto minmax(0, 1fr) !important; }
+
+  /* «…» menu: a sheet from the bottom, full width, thumb-sized rows */
+  .ctxmenu { left: 8px !important; right: 8px !important; top: auto !important; bottom: calc(env(safe-area-inset-bottom) + 8px) !important; min-width: 0;
+    padding: 8px; border-radius: 22px; transform: translateY(24px); transform-origin: bottom center; max-height: 70vh; overflow: auto; transition: opacity 160ms, transform 260ms var(--ease); }
+  .ctxmenu.open { transform: none; }
+  .ctxmenu button { height: 46px; font-size: 15px; padding: 0 14px; border-radius: 12px; }
+  .ctxmenu .ctx-label { padding: 10px 14px 6px; }
+
+  /* dialogs (settings, Smart Session, …): sheets from the bottom, clear of the status bar, a handle on top */
+  .modal { place-items: end center; padding-top: calc(env(safe-area-inset-top) + 12px); }
+  .modal-card { width: 100vw; max-width: 100vw; max-height: calc(100vh - env(safe-area-inset-top) - 12px); border-radius: 26px 26px 0 0;
+    padding: 26px 16px calc(env(safe-area-inset-bottom) + 18px); transform: translateY(40px); position: relative; }
+  .modal-card::before { content: ""; position: absolute; top: 9px; left: 50%; width: 40px; height: 4px; margin-left: -20px; border-radius: 4px; background: var(--ink-4); }
+  .modal.open .modal-card { transform: none; }
+  .modal-card h3 { font-size: 20px; }
+  .modal-card .theme-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .set-row { gap: 10px 16px; }
+
+  /* toasts sit under the titlebar */
+  #toasts { top: calc(env(safe-area-inset-top) + 62px); }
+}
+
+/* ======================= phone: the sound tools =======================
+   The rack is a sheet above the tab bar («Sound» tab); every panel fits the width of a phone */
+.nav-tools { display: none; }
+@media (max-width: 760px) {
+  .nav-tools { display: flex; position: relative; }
+  .nav-tools.fx-on::after { content: ""; position: absolute; top: 8px; right: calc(50% - 16px); width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+  body.rack-open .nav-tools { background: var(--sel); color: var(--ink); }
+  body.rack-open .nav-item.active:not(.nav-tools) { background: transparent; box-shadow: none; }
+
+  .rack { left: 8px; right: 8px; width: auto; bottom: calc(env(safe-area-inset-bottom) + 10px + 70px); max-height: calc(100vh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 150px);
+    transform: translateY(24px); overflow: auto; overscroll-behavior: contain; scrollbar-width: none; padding: 8px; border-radius: 24px; }
+  .rack.open { transform: none; }
+  .rack::-webkit-scrollbar { display: none; }
+  .rack-tabs { position: sticky; top: -8px; z-index: 3; margin: -8px -8px 8px; padding: 8px; gap: 2px; overflow-x: auto; scrollbar-width: none; background: var(--glass-3); border-radius: 24px 24px 0 0; }
+  .rack-tabs::-webkit-scrollbar { display: none; }
+  .rack-tab { flex: none; height: 34px; padding: 0 10px; font-size: 12.5px; }
+  .rack-spacer { flex: 0 0 4px; }
+  .rack-export { flex: none; padding: 0 9px; } .rack-export span { display: none; }
+  .rack-menu { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .tool-tile { height: 118px; padding: 14px; }
+
+  .plug-head { padding: 12px 14px 10px; gap: 10px; }
+  .plug-body { padding: 14px; gap: 14px; grid-template-columns: minmax(0, 1fr); }
+  .plugin, .plug-body > *, .pitch-grid > * { min-width: 0; } /* a long row (the TONE / VINYL switch) must not widen the panel */
+  .rack-tab .led { display: none; } .rack-tab.on { color: var(--accent); }
+  .plug-title { font-size: 20px; }
+  .pitch-grid { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .lcd .big { font-size: 34px; }
+  .plug-row { flex-wrap: wrap; gap: 10px; }
+  .plug-row .seg { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+  .plug-row > .seg:first-child:not(.sm):not(.eq-presets) { flex: 1 1 100%; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
+  .plug-row > .seg:first-child:not(.sm):not(.eq-presets) button { white-space: normal; height: auto; min-height: 34px; padding: 6px 8px; line-height: 1.2; }
+  .plug-row .seg::-webkit-scrollbar { display: none; }
+  .plug-row .grow { display: none; }
+  .sp-mix { width: 100%; }
+
+  /* ambient: the five sounds in one row, the master controls underneath */
+  .amb-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+  .amb-grid > :nth-child(n+6) { grid-column: 1 / -1; }
+  .amb-ch { padding: 10px 2px 8px; }
+  .amb-ico { width: 34px; height: 34px; }
+  .amb-name { font-size: 11px; }
+
+  /* equalizer: ten narrower faders that still fit a finger */
+  .eq-lcd { height: 92px; }
+  .eq-cols { gap: 0; padding: 0; }
+  .eq-col.pre { width: 34px; }
+  .eq-sep { margin: 18px 2px 22px; }
+  .eqf { width: 28px; height: 132px; }
+  .eqf-c { width: 26px; margin-left: -13px; }
+  .eq-col { font-size: 9.5px; min-width: 0; }
+  .eq-presets { flex: 1 1 100%; flex-wrap: nowrap; gap: 4px; overflow-x: auto; scroll-snap-type: x proximity; mask-image: linear-gradient(90deg, #000 88%, transparent); -webkit-mask-image: linear-gradient(90deg, #000 88%, transparent); }
+  .eq-presets button { flex: none; height: 34px; padding: 0 14px; scroll-snap-align: start; }
+}
+
+/* Smart Session on a phone: each choice is one even row of equal buttons */
+@media (max-width: 760px) {
+  .ss-grid { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .ss-field .seg { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); flex-wrap: nowrap; }
+  .ss-field .seg button { padding: 0 4px; height: 34px; font-size: 12.5px; }
+  .ss-moods { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* ======================= phone: the opening without blur =======================
+   The desktop intro blurs whole layers (the splash going out, each glass panel coming in, every letter):
+   on a phone each of those is a full-screen filter per frame. Same moves, opacity and transform only. */
+@media (max-width: 760px) {
+  .wm-row .ch, .wm-sound .ch { filter: none; animation-name: chInPhone; }
+  .splash-lines .d2 { filter: none; }
+  #splash.out { animation-name: splashOutPhone; }
+  /* the interface is drawn already under the (opaque) splash: a hidden one would be painted for the first time
+     exactly as the splash leaves — the stutter at the end of the intro */
+  #app { filter: none; }
+  body.prepaint #app { opacity: 1; transform: none; } /* splash.js: drawn under the still splash before it leaves */
+  body.ready #app > :is(.titlebar, .sidebar, .content, .deck) { animation-name: panelInPhone; animation-duration: 420ms; }
+  body.ready #app > .sidebar { animation-delay: 90ms; }
+  body.ready #app > .content { animation-delay: 140ms; }
+  body.ready #app > .deck { animation-delay: 200ms; }
+}
+@keyframes chInPhone { from { opacity: 0; transform: translateY(46%) rotate(4deg); } to { opacity: 1; transform: none; } }
+@keyframes splashOutPhone { 0% { opacity: 1; } 100% { opacity: 0; transform: scale(1.04); visibility: hidden; } }
+@keyframes panelInPhone { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+
+/* web search results on a phone: name on top, the source badges under it, the buttons on their own row */
+@media (max-width: 760px) {
+  .web-row { grid-template-columns: 40px auto auto minmax(0, 1fr); grid-template-areas: "ico meta meta meta" "ico prev link dl";
+    gap: 8px 8px; align-items: center; height: auto; min-height: 0; padding: 12px 10px; margin-bottom: 6px; background: var(--groove); }
+  .web-row > .web-ico { grid-area: ico; align-self: start; width: 40px; height: 40px; }
+  .web-row > .web-meta { grid-area: meta; }
+  .web-row > button.icon-btn:nth-child(3) { grid-area: prev; }
+  .web-row > button.icon-btn:nth-child(4) { grid-area: link; }
+  .web-row > .dl { grid-area: dl; min-width: 0; width: 100%; height: 40px; justify-content: center; }
+  .web-row > button.icon-btn { width: 40px; height: 40px; border-radius: 12px; background: var(--glass-2); }
+  .web-meta .t { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.25; font-size: 14.5px; }
+  .web-meta .s { flex-wrap: wrap; gap: 4px 6px; margin-top: 4px; white-space: normal; overflow: visible; }
+  .web-meta .s > span:first-child { flex: 1 0 100%; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .web-meta .s .badge { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+}
+
+/* timelines on a phone: a taller strip to land a finger on, the knob and the time bubble show while dragging */
+@media (max-width: 760px) {
+  .seek { height: 26px; }
+  .seek::before, .dv-seek::before { content: ""; position: absolute; left: -6px; right: -6px; top: -12px; bottom: -12px; }
+  .seek.drag .seek-thumb { transform: scale(1.3); }
+  .seek-tip { bottom: calc(100% + 12px); font-size: 12px; padding: 4px 8px; }
+  .dv-seek.drag { cursor: grabbing; }
+}
+@media (hover: none) { .seek:hover .seek-tip { opacity: 0; } .seek.drag .seek-tip { opacity: 1; } .seek:hover .seek-thumb { transform: scale(0); } .seek.drag .seek-thumb { transform: scale(1.3); } }
+
+/* web results: artwork when the source has it, the playing one marked, «listen only» where downloads are not allowed */
+.web-ico.cover { background-size: cover; }
+.web-row.playing .web-meta .t { color: var(--hot); }
+.web-play.on { color: var(--accent); }
+.web-nodl { font-size: 11.5px; color: var(--ink-3); text-align: center; padding: 0 6px; white-space: nowrap; }
+@media (max-width: 760px) { .web-row > .web-nodl { grid-area: dl; } }

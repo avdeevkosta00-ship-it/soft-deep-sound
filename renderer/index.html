@@ -2,10 +2,12 @@
 <html lang="ru" data-theme="soft">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self' sds:; script-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' sds: data: blob: https://i.scdn.co https://*.scdn.co https://*.spotifycdn.com; media-src 'self' sds: blob: https:; font-src 'self'; connect-src 'self' sds: blob:; worker-src 'self' blob:">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' sds:; script-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' sds: data: blob: https://usercontent.jamendo.com https://*.jamendo.com; media-src 'self' sds: blob: https:; font-src 'self'; connect-src 'self' sds: blob:; worker-src 'self' blob:">
 <title>Soft&amp;Deep Sound</title>
 <link rel="stylesheet" href="styles.css">
 <link rel="stylesheet" href="themes-sd.css">
+<script src="js/early.js"></script>
 </head>
 <body>
 
@@ -67,12 +69,12 @@
 
   <aside class="sidebar glass panel" data-panel="side">
     <nav class="nav">
-      <button class="nav-item active" data-view="library"><svg viewBox="0 0 24 24"><rect x="3.6" y="4.5" width="3.8" height="15" rx="1"/><rect x="9.6" y="4.5" width="3.8" height="15" rx="1"/><path d="M15.6 5.6l3.6-1 2.7 13.9-3.6 1z"/><circle class="fill" cx="5.5" cy="16.6" r=".95"/><circle class="fill" cx="11.5" cy="16.6" r=".95"/></svg><span data-i18n="nav.library"></span><em id="libCount">0</em></button>
-      <button class="nav-item" data-view="queue"><svg viewBox="0 0 24 24"><circle class="fill" cx="4.6" cy="6.5" r="1.15"/><circle class="fill" cx="4.6" cy="12" r="1.15"/><circle class="fill" cx="4.6" cy="17.5" r="1.15"/><path d="M8.5 6.5h11M8.5 12h11M8.5 17.5h6.5"/></svg><span data-i18n="nav.queue"></span><em id="queueCount">0</em></button>
-      <button class="nav-item" data-view="recent"><svg viewBox="0 0 24 24"><path d="M4.9 12A7.1 7.1 0 1 0 7 7"/><path d="M4.4 4.2v3.6H8"/><path d="M12 8.2V12l2.6 1.6"/><circle class="fill" cx="12" cy="12" r=".9"/></svg><span data-i18n="nav.recent"></span></button>
-      <button class="nav-item" data-view="health"><svg viewBox="0 0 24 24"><path d="M4.5 19V9.5M9 19V5M13.5 19v-7.5"/><path d="M15.5 12.5h1.6l1.2-2.6 1.6 5 1.1-2.4h.9"/></svg><span data-i18n="nav.health"></span></button>
-      <button class="nav-item nav-session" id="sessionBtn"><svg viewBox="0 0 24 24"><path d="M3.5 14.5c2.2-4.6 4.4-4.6 6.6 0s4.4 4.6 6.6 0"/><path d="M18.5 3.8v3.6M16.7 5.6h3.6"/></svg><span data-i18n="nav.session"></span></button>
-      <button class="nav-item nav-import" id="importPlBtn"><svg viewBox="0 0 24 24"><path d="M4.5 6.5h9M4.5 11h6.5M4.5 15.5h5"/><path d="M17.5 8.5v10M14 15l3.5 3.5L21 15"/></svg><span data-i18n="nav.importPl"></span><em class="nav-new" data-i18n="nav.new"></em></button>
+      <button class="nav-item active" data-view="library"><svg viewBox="0 0 24 24"><rect x="3.6" y="4.5" width="3.8" height="15" rx="1"/><rect x="9.6" y="4.5" width="3.8" height="15" rx="1"/><path d="M15.6 5.6l3.6-1 2.7 13.9-3.6 1z"/><circle class="fill" cx="5.5" cy="16.6" r=".95"/><circle class="fill" cx="11.5" cy="16.6" r=".95"/></svg><span data-i18n="nav.library"></span><span class="nav-s" data-i18n="nav.libraryS"></span><em id="libCount">0</em></button>
+      <button class="nav-item" data-view="queue"><svg viewBox="0 0 24 24"><circle class="fill" cx="4.6" cy="6.5" r="1.15"/><circle class="fill" cx="4.6" cy="12" r="1.15"/><circle class="fill" cx="4.6" cy="17.5" r="1.15"/><path d="M8.5 6.5h11M8.5 12h11M8.5 17.5h6.5"/></svg><span data-i18n="nav.queue"></span><span class="nav-s" data-i18n="nav.queueS"></span><em id="queueCount">0</em></button>
+      <button class="nav-item" data-view="recent"><svg viewBox="0 0 24 24"><path d="M4.9 12A7.1 7.1 0 1 0 7 7"/><path d="M4.4 4.2v3.6H8"/><path d="M12 8.2V12l2.6 1.6"/><circle class="fill" cx="12" cy="12" r=".9"/></svg><span data-i18n="nav.recent"></span><span class="nav-s" data-i18n="nav.recentS"></span></button>
+      <button class="nav-item" data-view="health"><svg viewBox="0 0 24 24"><path d="M4.5 19V9.5M9 19V5M13.5 19v-7.5"/><path d="M15.5 12.5h1.6l1.2-2.6 1.6 5 1.1-2.4h.9"/></svg><span data-i18n="nav.health"></span><span class="nav-s" data-i18n="nav.healthS"></span></button>
+      <button class="nav-item nav-session" id="sessionBtn"><svg viewBox="0 0 24 24"><path d="M3.5 14.5c2.2-4.6 4.4-4.6 6.6 0s4.4 4.6 6.6 0"/><path d="M18.5 3.8v3.6M16.7 5.6h3.6"/></svg><span data-i18n="nav.session"></span><span class="nav-s" data-i18n="nav.sessionS"></span></button>
+      <button class="nav-item nav-tools" id="navTools"><svg viewBox="0 0 24 24"><path d="M5 20v-6M5 10V4M12 20v-9M12 7V4M19 20v-4M19 12V4"/><path d="M3 14h4M10 7h4M17 16h4"/></svg><span data-i18n="tr.tools"></span><span class="nav-s" data-i18n="nav.toolsS"></span></button>
     </nav>
 
     <div class="side-head">

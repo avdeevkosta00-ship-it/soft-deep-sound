@@ -1,0 +1,8 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="playback_channel">Воспроизведение</string>
+    <string name="cmd_prev">Предыдущий</string>
+    <string name="cmd_play">Играть</string>
+    <string name="cmd_pause">Пауза</string>
+    <string name="cmd_next">Следующий</string>
+</resources>

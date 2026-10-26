@@ -97,20 +97,6 @@ Pick a mood (Calm, Deep, Energetic or Dark), a length and a tempo range, and get
 
 <p align="center"><img src="docs/media/session.webp" alt="Smart Session" width="620"></p>
 
-### 📥 Playlist import
-Bring a playlist over from **Deezer** (by link), **Spotify** (sign in to your account through the official API) or a **CSV / TXT / M3U** file. Files cover Yandex Music, VK, Apple Music and other services: export the playlist with Soundiiz or TuneMyMusic.
-Only track names are transferred: the player finds them among your files, copes with transliteration and typos, and keeps remixes apart from originals. Doubtful matches can be checked by hand. The playlist remembers missing tracks and fills itself in when you add the files.
-
-<details>
-<summary>Connecting Spotify</summary>
-
-1. Open the [Spotify developer dashboard](https://developer.spotify.com/dashboard) and create an app (free).
-2. Add `http://127.0.0.1:43117/callback` under **Redirect URIs** and tick **Web API**.
-3. Paste the **Client ID** into “Import playlist → My Spotify” and press “Sign in with Spotify”.
-
-Spotify’s rules for apps in development mode: the owner needs Premium, up to 5 people can sign in (add them under User Management), and only your own and collaborative playlists expose their tracks. Other people’s playlists come over via a file.
-</details>
-
 ### 🧭 Built-in tour
 On first launch a short tour lights up the main controls and explains what they do. Replay it with the **?** button in the title bar.
 

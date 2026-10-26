@@ -10,6 +10,8 @@ const TARGETS = '.pl-item, .nav-item[data-view="queue"], .np-next';
 export function attachTrackDrag(wrap, { idsFor, describe, hintFor, onDrop }) {
   wrap.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
+    // a finger on a touch screen scrolls the list; dragging tracks is for the mouse
+    if (e.pointerType === 'touch') return;
     const row = e.target.closest('.row');
     if (!row || e.target.closest('button, .play-mini')) return;
     const sx = e.clientX, sy = e.clientY;

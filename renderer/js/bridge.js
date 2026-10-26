@@ -1,8 +1,15 @@
 /**
  * Bridge to the main process. In Electron this is window.sds (preload).
+ * In the Android app (Capacitor) the phone's music comes from the MusicLibrary plugin (android/…/MusicLibraryPlugin.java).
  * Opened in a plain browser (UI development / tests) a mock with synthesized demo tracks is used.
  */
-export const isMock = !window.sds;
+const cap = window.Capacitor;
+import { cleanName, stripJunk } from './names.js';
+import { createWebSearch } from './websearch.js';
+import { t as tr } from './i18n.js';
+
+export const isAndroid = !window.sds && !!(cap && cap.isNativePlatform && cap.isNativePlatform());
+export const isMock = !window.sds && !isAndroid;
 
 function wav(channels, sr) {
   const n = channels[0].length, nc = channels.length;
@@ -123,38 +130,6 @@ function mock() {
       pick: async (name, format) => ({ path: `export://${name}.${format}`, format }),
       write: async (p, data) => { urls.set(p, URL.createObjectURL(new Blob([data], { type: p.endsWith('.wav') ? 'audio/wav' : 'audio/mpeg' }))); window.__lastExport = data; return p; }
     },
-    importer: {
-      deezer: async (url) => {
-        await new Promise((r) => setTimeout(r, 700));
-        if (!/deezer/.test(url)) throw new Error('bad-url');
-        return { source: 'deezer', kind: 'playlist', title: 'Night Drive', owner: 'demo', tracks: [
-          { title: 'Glass Horizon', artist: 'Aerolume', album: 'Skylines', duration: 36 },
-          { title: 'Chrome Weather (Remastered 2021)', artist: 'Aerolume', album: 'Skylines', duration: 36 },
-          { title: 'Soft Signal', artist: 'Mira Vale feat. Nobody', album: '', duration: 37 },
-          { title: 'Deep Current (Club Remix)', artist: 'Northbound', album: '', duration: 212 },
-          { title: 'Frosted Avenue', artist: 'Lumen Park', album: '', duration: 36 },
-          { title: 'Midnight City', artist: 'M83', album: 'Hurry Up, We’re Dreaming', duration: 244 },
-          { title: 'Group of Blood', artist: 'Kino', album: '', duration: 286 },
-          { title: 'Blinding Lights', artist: 'The Weeknd', album: 'After Hours', duration: 200 }
-        ] };
-      },
-      spotify: (() => {
-        let on = false, waiting = null;
-        return {
-          status: async () => ({ connected: on, user: on ? 'Konstantin' : '', redirect: 'http://127.0.0.1:43117/callback' }),
-          login: (id) => new Promise((res, rej) => { if (!/^[0-9a-f]{32}$/i.test(id)) return rej(new Error('bad-client-id')); waiting = rej; setTimeout(() => { if (waiting) { on = true; waiting = null; res({ connected: true, user: 'Konstantin' }); } }, 1500); }),
-          cancel: async () => { if (waiting) { waiting(new Error('cancelled')); waiting = null; } },
-          logout: async () => { on = false; return { connected: false }; },
-          playlists: async () => { await new Promise((r) => setTimeout(r, 400)); return { user: 'Konstantin', liked: 124, playlists: [
-            { id: 'a1', name: 'Ночная дорога', count: 23, image: null, owner: 'Konstantin', own: true },
-            { id: 'a2', name: 'Фокус', count: 41, image: null, owner: 'Konstantin', own: true },
-            { id: 'a3', name: 'Today’s Top Hits', count: 50, image: null, owner: 'Spotify', own: false }] }; },
-          tracks: async () => { await new Promise((r) => setTimeout(r, 500)); return { source: 'spotify', kind: 'playlist', title: 'Ночная дорога', tracks: [
-            { title: 'Runner Line', artist: 'Faith & Rooftops', duration: 36 }, { title: 'Glass Horizon', artist: 'Aerolume', duration: 36 },
-            { title: 'Starboy', artist: 'The Weeknd, Daft Punk', duration: 230 }] }; }
-        };
-      })()
-    },
     covers: {
       pick: () => new Promise((res) => {
         const i = document.createElement('input'); i.type = 'file'; i.accept = 'image/*';
@@ -169,4 +144,140 @@ function mock() {
   };
 }
 
-export const bridge = window.sds || mock();
+/** JSON over Capacitor's native HTTP (no CORS, no CSP in the way); a busy server (5xx) gets two more tries */
+async function nativeJSON(url, { timeout = 12000, headers = {} } = {}) {
+  for (let attempt = 0; ; attempt++) {
+    const r = await cap.nativePromise('CapacitorHttp', 'request', { url, method: 'GET', headers: { Accept: 'application/json', ...headers }, responseType: 'json', readTimeout: timeout, connectTimeout: timeout });
+    if (r.status === 404) return null;
+    if (r.status >= 200 && r.status < 300) return typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
+    if (r.status < 500 || attempt >= 2) throw new Error(r.status + ' ' + url);
+    await new Promise((res) => setTimeout(res, 1200 * (attempt + 1)));
+  }
+}
+
+/** SafeDownload.java's short reasons, in words (the desktop has the same ones in src/i18n-main.js) */
+function downloadError(code) {
+  const c = String(code || '');
+  if (/too-big/.test(c)) return tr('ws.err.big');
+  if (/timeout|timed out/i.test(c)) return tr('ws.err.slow');
+  if (/not-audio-bytes/.test(c)) return tr('ws.err.sniff');
+  if (/not-audio/.test(c)) return tr('ws.err.notAudio');
+  if (/https only|blocked address|redirects/.test(c)) return tr('ws.err.addr');
+  const st = /HTTP (\d+)/.exec(c); if (st) return tr('ws.err.status', { code: st[1] });
+  if (/Unable to resolve|UnknownHost|ENOTFOUND|connect/i.test(c)) return tr('ws.err.net');
+  return c || tr('ws.err.net');
+}
+
+/** LRCLIB (lrclib.net), the open lyrics database the desktop uses too */
+async function lrclib({ title, artist, album, duration }, { online } = {}) {
+  title = stripJunk(title); artist = stripJunk(artist);
+  if (!online || !title || (!artist && !(duration > 0))) return null;
+  const ua = 'SoftDeepSound (Android; https://github.com/infallibl3/soft-deep-sound)';
+  const ask = (url) => nativeJSON(url, { headers: { 'User-Agent': ua, 'Lrclib-Client': ua } });
+  const pick = (r) => (r && r.instrumental ? '[instrumental]' : r && (r.syncedLyrics || r.plainLyrics) ? (r.syncedLyrics || r.plainLyrics).trim() : '');
+  const near = (r) => !(duration > 0) || !r.duration || Math.abs(r.duration - duration) <= 3;
+  let text = '';
+  if (artist) {
+    const q = new URLSearchParams({ track_name: title, artist_name: artist });
+    if (album) q.set('album_name', album);
+    if (duration > 0) q.set('duration', String(Math.round(duration)));
+    text = pick(await ask('https://lrclib.net/api/get?' + q));
+  }
+  if (!text) {
+    // looser: a search, keeping only entries of (almost) the same length
+    const q = artist ? new URLSearchParams({ track_name: title, artist_name: artist }) : new URLSearchParams({ q: title });
+    const fit = ((await ask('https://lrclib.net/api/search?' + q)) || []).filter(near);
+    text = pick(fit.find((r) => r.syncedLyrics) || fit[0]);
+  }
+  return text ? { source: 'lrclib', text } : null;
+}
+
+/** Android: the mock's harmless stubs, with the library, storage and media URLs made real */
+function android() {
+  const base = mock();
+  const call = (method, opts = {}) => cap.nativePromise('MusicLibrary', method, opts);
+  let found = new Map();
+  // voice messages and call/voice recordings are audio, not music
+  const NOT_MUSIC = /\/(WhatsApp Voice Notes|Voice Recorder|Recordings|Call|Sounds\/CallRecord)\//i;
+  const scan = async () => { const r = await call('scan'); const ts = r.tracks.filter((t) => !NOT_MUSIC.test(t.path)); found = new Map(ts.map((t) => [t.path, t])); return ts; };
+  const ext = (p) => (p.match(/\.(\w+)$/) || [, ''])[1].toUpperCase();
+  const track = (p) => {
+    const t = found.get(p);
+    if (!t) return null;
+    const format = ext(p) || 'MP3';
+    const parts = p.split('/'), base = parts.pop().replace(/\.\w+$/, ''), folder = parts.pop();
+    // no tags → Android just repeats the file name as the title: split «Artist - Title» and drop site junk, as on the desktop
+    const fromFile = cleanName(base);
+    const tagged = t.title && t.title !== base;
+    const title = (tagged && stripJunk(t.title)) || fromFile.title;
+    const artist = stripJunk(t.artist) || (tagged ? '' : fromFile.artist);
+    // without an album tag Android names the album after the folder («Download»)
+    const album = t.album && t.album !== folder ? stripJunk(t.album) : '';
+    return { id: t.id, path: p, title, artist, album, duration: t.duration,
+      cover: t.cover || null, format, lossless: /FLAC|WAV/.test(format), year: t.year || null, addedAt: t.addedAt || Date.now(), bpm: null };
+  };
+  return {
+    ...base,
+    isAndroid: true,
+    // files on the phone and cached artwork go through Capacitor's local server (same origin, so Web Audio can read them)
+    mediaUrl: (p) => (p && p.startsWith('/') ? cap.convertFileSrc('file://' + p) : base.mediaUrl(p)),
+    store: {
+      load: async () => { try { return JSON.parse(localStorage.getItem('sds-library') || 'null'); } catch { return null; } },
+      save: async (d) => { try { localStorage.setItem('sds-library', JSON.stringify(d)); if (d && d.settings) localStorage.setItem('sds-theme', d.settings.theme); return true; } catch { return false; } }
+    },
+    library: {
+      ...base.library,
+      // «add music» on a phone = everything Android knows as music; there is no file picker to walk through
+      pick: async () => (await scan()).map((t) => t.path),
+      probe: async (paths) => { if (paths.some((p) => !found.has(p))) await scan(); return paths.map(track).filter(Boolean); },
+      exists: async (p) => (await call('exists', { paths: [p] })).exists[0],
+      existsMany: async (paths) => (await call('exists', { paths })).exists,
+      formatInfo: async (paths) => Object.fromEntries(paths.map((p) => { const t = found.get(p); return [p, { size: t ? t.size : null, codec: ext(p), lossless: /FLAC|WAV/.test(ext(p)), year: t ? t.year : null }]; })),
+      scan: undefined
+    },
+    lyrics: { get: (t, opts) => lrclib(t, opts) },
+    // web search in open sources (the desktop's providers, renderer/js/websearch.js); downloads go to Music/Soft&Deep Sound
+    web: (() => {
+      const ws = createWebSearch({
+        tm: (k) => tr('ws.' + k),
+        getJSON: async (url, timeout = 10000) => { const d = await nativeJSON(url, { timeout, headers: { 'User-Agent': 'SoftDeepSound/1.0 (Android music player)' } }); if (d === null) throw new Error('404 ' + url); return d; }
+      });
+      let onProgress = () => {};
+      cap.nativeCallback('MusicLibrary', 'addListener', { eventName: 'download' }, (d) => { if (d && d.id) onProgress(d); });
+      return {
+        ...base.web,
+        search: (query, settings) => ws.searchAll(query, settings || {}),
+        extract: undefined, // a page link is not followed on the phone yet
+        onProgress: (cb) => { onProgress = cb; },
+        open: (url) => cap.nativePromise('MediaControls', 'openUrl', { url }).catch(() => {}),
+        async download(item) {
+          let path;
+          try { ({ path } = await cap.nativePromise('MusicLibrary', 'download', { id: item.id, url: item.fileUrl, referer: item.pageUrl || null, name: item.artist ? item.artist + ' - ' + item.title : item.title })); }
+          catch (e) { throw new Error(downloadError(e && e.message)); }
+          await scan().catch(() => {});
+          // Android may not count a short or untagged file as music: then the web result's own data stands in
+          return track(path) || { id: 'w' + item.id, path, title: item.title, artist: item.artist || '', album: '', duration: item.duration || 0, cover: null, format: (ext(path) || 'MP3'), addedAt: Date.now(), bpm: null };
+        }
+      };
+    })(),
+    // not on the phone yet: page links (the UI hides them), MusicBrainz repair
+    backgrounds: undefined,
+    meta: { repair: async () => null },
+    // the player in the notification shade and on the lock screen (android/…/PlaybackService.java)
+    app: { ...base.app, minimize: () => cap.nativePromise('MediaControls', 'minimize', {}).catch(() => {}),
+      // the phone's status bar icons follow the theme
+      setTone: (light) => cap.nativePromise('MediaControls', 'setBars', { light }).catch(() => {}) },
+    media: {
+      state: (st) => {
+        if (!st.hasTrack) return cap.nativePromise('MediaControls', 'stop', {}).catch(() => {});
+        const { title, artist, album, cover, playing, position, duration, rate } = st;
+        cap.nativePromise('MediaControls', 'update', { title, artist, album, cover, playing, position: position || 0, duration: duration || 0, rate: rate || 1 }).catch(() => {});
+      },
+      onCommand: (cb) => cap.nativeCallback('MediaControls', 'addListener', { eventName: 'command' }, (d) => { if (d && d.cmd) cb(d.cmd === 'seek' ? 'seek:' + d.pos : d.cmd); })
+    }
+  };
+}
+
+const raw = window.sds || (isAndroid ? android() : mock());
+/** a track or cover from the web search is an https address and is used as it is; files go through the app's own url */
+export const bridge = { ...raw, mediaUrl: (p) => (/^https:\/\//i.test(p || '') ? p : raw.mediaUrl(p)) };

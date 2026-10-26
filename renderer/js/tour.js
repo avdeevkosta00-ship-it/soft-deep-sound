@@ -11,7 +11,6 @@ import { t as tr } from './i18n.js';
 export const WELCOME = [
   { key: 'hello' },
   { key: 'add', sel: '.import-card' },
-  { key: 'import', sel: '#importPlBtn' },
   { key: 'search', sel: '#search' },
   { key: 'later', sel: '#helpBtn' }
 ];
@@ -19,7 +18,6 @@ export const WELCOME = [
 export const STEPS = [
   { key: 'hello' },
   { key: 'add', sel: '.import-card' },
-  { key: 'import', sel: '#importPlBtn' },
   { key: 'search', sel: '#search' },
   { key: 'session', sel: '#sessionBtn' },
   { key: 'playlists', sel: '.side-head' },

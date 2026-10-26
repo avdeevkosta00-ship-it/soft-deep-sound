@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- notification icon: the Soft&Deep mark (ring, wave, cut) in one colour -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp" android:viewportWidth="32" android:viewportHeight="32">
+    <path android:strokeColor="#FFFFFFFF" android:strokeWidth="2.2" android:fillColor="#00000000"
+        android:pathData="M16,2.5a13.5,13.5 0,1 1,0 27a13.5,13.5 0,1 1,0 -27z" />
+    <path android:strokeColor="#FFFFFFFF" android:strokeWidth="2.4" android:fillColor="#00000000" android:strokeLineCap="round"
+        android:pathData="M8,19 C11,9 15,9 16,16 S21,23 24,13" />
+    <path android:strokeColor="#FFFFFFFF" android:strokeWidth="2" android:fillColor="#00000000" android:strokeLineCap="round"
+        android:pathData="M21,4 L26,28" />
+</vector>

@@ -11,12 +11,10 @@ const fsp = fs.promises;
 const crypto = require('crypto');
 const { Readable } = require('stream');
 const { pathToFileURL } = require('url');
-const { searchAll } = require('./src/search/providers');
+const { httpFetch } = require('./src/search/http');
 const { safeDownload } = require('./src/search/downloader');
 const { extractAudio } = require('./src/search/extract');
 const { tm, setLang } = require('./src/i18n-main');
-const { importDeezer } = require('./src/import/deezer');
-const spotify = require('./src/import/spotify');
 const musicbrainz = require('./src/meta/musicbrainz');
 const lyrics = require('./src/meta/lyrics');
 const updater = require('./src/updater');
@@ -186,6 +184,17 @@ async function formatInfo(filePath) {
 /** the shared file-name rules (renderer/js/names.js, an ES module) */
 let namesMod = null;
 const names = () => namesMod || (namesMod = import(pathToFileURL(path.join(__dirname, 'renderer', 'js', 'names.js')).href));
+
+/** web search in open sources: renderer/js/websearch.js, shared with the Android app; here it fetches through http.js */
+let webSearchMod = null;
+const webSearch = () => webSearchMod || (webSearchMod = import(pathToFileURL(path.join(__dirname, 'renderer', 'js', 'websearch.js')).href).then((m) => m.createWebSearch({
+  tm,
+  async getJSON(url, timeout = 10000) {
+    const res = await httpFetch(url, { headers: { 'User-Agent': 'SoftDeepSound/1.0 (desktop music player)', Accept: 'application/json' }, signal: AbortSignal.timeout(timeout) });
+    if (!res.ok) throw new Error(`${res.status} ${url}`);
+    return res.json();
+  }
+})));
 
 async function probe(filePath) {
   mm = mm || require('music-metadata');
@@ -557,7 +566,7 @@ function registerIpc() {
   });
   ipcMain.handle('library:reveal', (_e, p) => shell.showItemInFolder(p));
 
-  ipcMain.handle('web:search', async (_e, { query, settings }) => searchAll(query, settings || {}));
+  ipcMain.handle('web:search', async (_e, { query, settings }) => (await webSearch()).searchAll(query, settings || {}));
   ipcMain.handle('web:extract', async (_e, url) => extractAudio(url));
   ipcMain.handle('web:download', async (e, item) => {
     await fsp.mkdir(downloadsDir(), { recursive: true });
@@ -569,13 +578,6 @@ function registerIpc() {
   });
 
   // playlist import: only track lists are read (title, artist, album, length); nothing is downloaded
-  ipcMain.handle('import:deezer', (_e, url) => importDeezer(url));
-  ipcMain.handle('spotify:status', (_e, clientId) => spotify.status(clientId));
-  ipcMain.handle('spotify:login', (_e, clientId) => spotify.login(clientId));
-  ipcMain.handle('spotify:cancel', () => spotify.cancelLogin());
-  ipcMain.handle('spotify:logout', () => spotify.logout());
-  ipcMain.handle('spotify:playlists', () => spotify.playlists());
-  ipcMain.handle('spotify:tracks', (_e, id) => spotify.playlistTracks(id));
   ipcMain.handle('app:lang', (_e, l) => { setLang(l); buildTrayMenu(); updateThumbar(); });
   ipcMain.handle('app:paths', () => ({ downloads: downloadsDir(), userData: userDir(), downloadsCustom: downloadsDir() !== defaultDownloadsDir() }));
   ipcMain.handle('downloads:pick', async () => {
@@ -641,7 +643,6 @@ else {
     nativeTheme.themeSource = 'light';
     registerProtocol();
     loadPrefs();
-    spotify.init({ userDir, openExternal: (u) => shell.openExternal(u), safeStorage });
     musicbrainz.init({ version: app.getVersion(), coversDir });
     // the portable build can't replace itself; it only hears that a new version exists
     updater.init({ send: (st) => { if (win && !win.isDestroyed()) win.webContents.send('update:state', st); }, canInstall: !process.env.PORTABLE_EXECUTABLE_DIR, log: (k, e) => logError(k, e) });

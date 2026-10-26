@@ -13,6 +13,7 @@ function splitLetters() {
       s.style.setProperty('--i', el.classList.contains('wm-sound') ? i++ - 8 : i++);
       el.append(s);
     }
+    el.classList.add('split');
   }
 }
 
@@ -45,6 +46,12 @@ export function runSplash({ ctx, sound }) {
     let done = false;
     const finish = () => {
       if (done) return; done = true;
+      // the interface is painted for the first time under the finished (still) wordmark, then the splash leaves:
+      // a phone needs ~0.5–0.9 s for that first paint, and a frozen still picture is not noticed — a frozen fade is
+      document.body.classList.add('prepaint');
+      requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(out, 30)));
+    };
+    const out = () => {
       sp.classList.add('out');
       setTimeout(() => document.body.classList.add('ready'), 60);
       setTimeout(() => { sp.remove(); resolve(); }, 520);
