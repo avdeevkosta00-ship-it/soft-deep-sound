@@ -176,9 +176,10 @@ export class Shapes {
       const b = document.body.classList;
       const fx = document.documentElement.dataset.fx || 'live';
       if (fx === 'off' || (fx === 'still' && this.drawn) || this.lost || document.documentElement.classList.contains('win-hidden') || document.hidden || b.contains('deep-open') || b.contains('visual-open')) { this.last = now; return; }
+      if (this.drawn && now - this.lastDraw < 15.5) return; // no more than 60 fps, whatever the screen's refresh rate
       this.pace = fx === 'calm' ? .35 : fx === 'still' ? 0 : 1;
       this.frame(now);
-      this.drawn = true;
+      this.drawn = true; this.lastDraw = now;
     };
     requestAnimationFrame(loop);
   }

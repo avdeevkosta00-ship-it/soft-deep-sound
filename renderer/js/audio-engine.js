@@ -86,7 +86,7 @@ export class AudioEngine extends EventTarget {
         }
       });
     }
-    this.loadSeq = 0; this.pauseSeq = 0; this.loading = false;
+    this.loadSeq = 0; this.pauseSeq = 0; this.pauseAsks = 0; this.fadingOut = false; this.loading = false;
     this.ready = this.initWorklet();
   }
 
@@ -147,6 +147,7 @@ export class AudioEngine extends EventTarget {
     const d = this.deck, now = this.ctx.currentTime;
     d.xf.gain.cancelScheduledValues(now); d.xf.gain.setValueAtTime(1, now);
     this.setDeckGain(d, gainDb, true);
+    if (!d.audio.paused) d.audio.pause(); // swapping src pauses silently; this way the UI hears it
     this.loading = true;
     try { await this.openOn(d, url); }
     finally { if (my === this.loadSeq) this.loading = false; }
@@ -157,12 +158,21 @@ export class AudioEngine extends EventTarget {
 
   /** the overlap: new track on the idle deck, equal-power curves, then the decks swap roles */
   async crossTo(url, sec, gainDb, my, at) {
-    const next = this.idle, prev = this.deck;
+    const next = this.idle, prev = this.deck, asked = this.pauseAsks;
     this.loading = true;
     try { await this.openOn(next, url); }
+    catch (err) { if (my === this.loadSeq && !prev.audio.paused) { prev.audio.pause(); } throw err; }
     finally { if (my === this.loadSeq) this.loading = false; }
     if (my !== this.loadSeq) throw new DOMException('superseded', 'AbortError');
     if (at) next.audio.currentTime = at;
+    if (asked !== this.pauseAsks) { // paused while the next file was opening: switch over quietly, no overlap
+      prev.audio.pause();
+      next.xf.gain.cancelScheduledValues(this.ctx.currentTime); next.xf.gain.setValueAtTime(1, this.ctx.currentTime);
+      this.setDeckGain(next, gainDb, true);
+      this.cur = 1 - this.cur;
+      this.dispatchEvent(new Event('loadedmetadata')); this.dispatchEvent(new Event('pause'));
+      return;
+    }
     const t0 = this.ctx.currentTime, n = 32;
     const up = new Float32Array(n), down = new Float32Array(n);
     for (let i = 0; i < n; i++) { const x = i / (n - 1); up[i] = Math.sin(x * Math.PI / 2); down[i] = Math.cos(x * Math.PI / 2); }
@@ -189,6 +199,7 @@ export class AudioEngine extends EventTarget {
   async play() {
     if (!this.audio.src) return;
     this.pauseSeq++; // a play() wins over a pause() that is still fading out
+    this.fadingOut = false;
     if (this.ctx.state !== 'running') await this.ctx.resume();
     this.fade.gain.cancelScheduledValues(this.ctx.currentTime);
     this.fade.gain.setValueAtTime(this.fade.gain.value, this.ctx.currentTime);
@@ -198,12 +209,16 @@ export class AudioEngine extends EventTarget {
   }
 
   async pause() {
-    const my = ++this.pauseSeq;
+    const my = ++this.pauseSeq; this.pauseAsks++;
+    this.fadingOut = true;
     await this.fadeTo(0, .16);
-    if (my === this.pauseSeq) { this.audio.pause(); if (this.xfading) this.idle.audio.pause(); }
+    if (my === this.pauseSeq) { this.fadingOut = false; this.audio.pause(); if (this.xfading) this.idle.audio.pause(); }
   }
 
-  toggle() { return this.playing ? this.pause() : this.play(); }
+  /** a click during the pause fade-out means «play on», not a second pause */
+  toggle() { return this.playing && !this.fadingOut ? this.pause() : this.play(); }
+  /** the current deck holds nothing playable (a broken file, or nothing loaded) */
+  get broken() { const a = this.audio; return !a.src || !!a.error || a.networkState === 3; }
 
   fadeTo(v, sec) {
     const t = this.ctx.currentTime;

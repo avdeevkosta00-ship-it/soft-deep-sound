@@ -19,7 +19,15 @@ export class Visualizer {
     new ResizeObserver(() => this.resize()).observe(canvas);
     this.resize();
     // nobody can see it while the window sits in the tray: skip the work (audio is unaffected)
-    const loop = () => { requestAnimationFrame(loop); if (document.documentElement.classList.contains('win-hidden') || document.hidden) return; this.frame(); };
+    // a 144–165 Hz screen would draw it 2–3× more often for nothing: 60 fps with music, 30 at rest
+    let last = 0;
+    const loop = (now) => {
+      requestAnimationFrame(loop);
+      const b = document.body.classList;
+      if (document.documentElement.classList.contains('win-hidden') || document.hidden || b.contains('deep-open') || b.contains('visual-open')) return;
+      if (now - last < (this.isPlaying() ? 15.5 : 32)) return;
+      this.dt = Math.min(.1, (now - last) / 1000); last = now; this.frame();
+    };
     requestAnimationFrame(loop);
   }
 
@@ -52,7 +60,7 @@ export class Visualizer {
   }
 
   frame() {
-    this.t += 1 / 60;
+    this.t += this.dt || 1 / 60;
     const playing = this.isPlaying();
     if (playing) this.an.getByteFrequencyData(this.data);
     for (let b = 0; b < BANDS; b++) {

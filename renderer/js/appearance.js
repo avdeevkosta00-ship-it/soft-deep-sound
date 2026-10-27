@@ -4,7 +4,8 @@
  *     artwork of the playing track). Every accent-derived variable is recomputed and kept readable:
  *     darker on light themes, brighter on dark ones;
  *   • the living background — live / calm / still / off;
- *   • glass blur — less / normal / more;
+ *   • glass — fully clear / less / normal / more / solid (clear and solid drop the blur altogether);
+ *   • the interface font — the theme's own, a bundled or common one, or any font installed on the computer;
  *   • your own background — any number of images, GIFs or short videos; every one added stays in the
  *     gallery (copies live in userData/backgrounds), one is shown behind the interface, softened to taste.
  * Everything is set as inline custom properties on <html>, so the theme files stay untouched and
@@ -22,6 +23,25 @@ const VARS = ['--accent', '--accent-2', '--accent-rgb', '--accent-deep', '--on-a
   '--blue-rgb', '--n1', '--n2', '--n3', '--n1-rgb', '--n3-rgb', '--shape-c1', '--shape-c2', '--shape-c3',
   '--line', '--line-faint', '--shade', '--glass-edge', '--groove', '--groove-edge', '--chrome-4', '--viz-a'];
 const BLUR = { less: '8px', more: '44px' };
+/** interface fonts: bundled ones work everywhere; the last three are Windows fonts, so phones don't list them */
+export const FONTS = [
+  ['system', 'system-ui, "Segoe UI Variable", "Segoe UI", Roboto, sans-serif'],
+  ['manrope', '"Manrope", sans-serif'],
+  ['unbounded', '"Unbounded", "Manrope", sans-serif'],
+  ['mono', '"JBMono", "Cascadia Mono", Consolas, monospace'],
+  ['serif', 'Georgia, "Noto Serif", "Times New Roman", serif'],
+  ['verdana', 'Verdana, sans-serif', true],
+  ['trebuchet', '"Trebuchet MS", sans-serif', true],
+  ['tahoma', 'Tahoma, sans-serif', true]
+];
+const LOCAL = 'local:';
+/** the CSS font stack for a saved choice, or null for the theme's own */
+function fontStack(v) {
+  if (!v || v === 'theme') return null;
+  if (v.startsWith(LOCAL)) return `"${v.slice(LOCAL.length).replace(/["\\]/g, '')}", "Manrope", sans-serif`;
+  const f = FONTS.find((x) => x[0] === v);
+  return f ? f[1] : null;
+}
 
 const hexToRgb = (x) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(x || '')); return m ? [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16)) : null; };
 const rgbToHex = (c) => '#' + c.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('');
@@ -69,6 +89,10 @@ export function createAppearance({ S, save, bridge, toast, hslToRgb, rgbToHsl, c
     root.dataset.fx = L.fx || 'live';
     renderBackground();
     if (BLUR[L.blur]) st.setProperty('--blur', BLUR[L.blur]); else st.removeProperty('--blur');
+    if (L.blur === 'clear' || L.blur === 'solid') root.dataset.glass = L.blur; else delete root.dataset.glass;
+    const stack = fontStack(L.font);
+    if (stack) { st.setProperty('--font', stack); st.setProperty('--display', stack); } else { st.removeProperty('--font'); st.removeProperty('--display'); }
+    adaptSoon();
     onChange && onChange();
   }
 
@@ -172,13 +196,93 @@ export function createAppearance({ S, save, bridge, toast, hslToRgb, rgbToHsl, c
     }
     if (mediaPath === item.path) return;
     const src = bridge.mediaUrl(item.path);
-    media = item.kind === 'video' ? h('video', { src, loop: true, playsinline: true }) : h('img', { src, alt: '' });
+    media = item.kind === 'video' ? h('video', { loop: true, playsinline: true }) : h('img', { alt: '' });
+    // anonymous CORS (the media protocol allows it) so adaptInk can read the pixels
+    media.crossOrigin = 'anonymous';
+    media.src = src;
+    media.addEventListener(item.kind === 'video' ? 'loadeddata' : 'load', adaptSoon);
     if (item.kind === 'video') { media.muted = true; media.play().catch(() => {}); }
     // the copy is gone (cleaned up by hand): fall back to the theme instead of a blank screen
     media.onerror = () => { if (look().bgActive === item.path) { look().bgActive = null; save(); renderBackground(); } };
     layer.append(media);
     mediaPath = item.path;
   }
+  /* ------------------------------ text that keeps reading ------------------------------ */
+  /**
+   * Over a background of your own the theme's text colour can land on a backdrop of the same brightness.
+   * The picture is sampled into a tiny canvas; for every panel the part behind it is averaged, mixed with
+   * the dimming layer and the panel's own glass, and when the theme's ink no longer stands out the panel
+   * switches to light or dark ink (.ink-light / .ink-dark). Videos and animated scenes are re-sampled
+   * every couple of seconds.
+   */
+  const PANELS = ['.titlebar', '.sidebar', '.content', '.nowplaying', '.deck'];
+  const SW = 64, SH = 36;
+  let probe = null, probeG = null, one = null;
+  /** any CSS colour → [r, g, b, a 0..1], through the canvas so hex, rgba() and color() all work */
+  function rgbaOf(css) {
+    if (!one) one = h('canvas', { width: 1, height: 1 }).getContext('2d', { willReadFrequently: true });
+    one.clearRect(0, 0, 1, 1); one.fillStyle = '#0000'; one.fillStyle = css; one.fillRect(0, 0, 1, 1);
+    const d = one.getImageData(0, 0, 1, 1).data;
+    return [d[0], d[1], d[2], d[3] / 255];
+  }
+  const lin = (v) => { v /= 255; return v <= .03928 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4; };
+  const lumOf = (c) => .2126 * lin(c[0]) + .7152 * lin(c[1]) + .0722 * lin(c[2]);
+  const contrast = (a, b) => (Math.max(a, b) + .05) / (Math.min(a, b) + .05);
+  const over = (top, under) => top.slice(0, 3).map((v, i) => v * top[3] + under[i] * (1 - top[3]));
+  /** the panel's own fill: a plain colour, or the first stop of its gradient */
+  function fillOf(el) {
+    const cs = getComputedStyle(el);
+    const c = rgbaOf(cs.backgroundColor);
+    if (c[3] > 0) return c;
+    const m = /(rgba?\([^)]*\)|color\([^)]*\)|#[0-9a-f]{3,8})/i.exec(cs.backgroundImage || '');
+    return m ? rgbaOf(m[1]) : [0, 0, 0, 0];
+  }
+  function adaptInk() {
+    const root = document.documentElement;
+    const els = PANELS.map((s) => document.querySelector(s)).filter(Boolean);
+    const clear = () => els.forEach((el) => el.classList.remove('ink-light', 'ink-dark'));
+    if (!root.dataset.userbg || !media) return clear();
+    const w = media.videoWidth || media.naturalWidth || media.width, hh = media.videoHeight || media.naturalHeight || media.height;
+    if (!w || !hh) return;
+    if (!probe) { probe = h('canvas', { width: SW, height: SH }); probeG = probe.getContext('2d', { willReadFrequently: true }); }
+    // the same crop as object-fit: cover, scaled down to the probe
+    const vw = innerWidth, vh = innerHeight, k = Math.max(vw / w, vh / hh);
+    const dw = w * k * SW / vw, dh = hh * k * SH / vh;
+    let px;
+    try { probeG.drawImage(media, (SW - dw) / 2, (SH - dh) / 2, dw, dh); px = probeG.getImageData(0, 0, SW, SH).data; } catch { return; }
+    const cs = getComputedStyle(root);
+    const dimC = rgbaOf(cs.getPropertyValue('--bg-2').trim() || '#000');
+    const dim = root.dataset.userbg === 'preset' ? 0 : (parseFloat(cs.getPropertyValue('--ubg-dim')) || 0);
+    const themeInk = lumOf(rgbaOf(cs.getPropertyValue('--ink').trim()));
+    const LIGHT = lumOf([244, 246, 251]), DARK = lumOf([14, 18, 34]);
+    for (const el of els) {
+      const r = el.getBoundingClientRect();
+      if (!r.width || !r.height) continue;
+      const x0 = Math.max(0, Math.floor(r.left / vw * SW)), x1 = Math.min(SW, Math.ceil(r.right / vw * SW));
+      const y0 = Math.max(0, Math.floor(r.top / vh * SH)), y1 = Math.min(SH, Math.ceil(r.bottom / vh * SH));
+      let sr = 0, sg = 0, sb = 0, n = 0;
+      for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const i = (y * SW + x) * 4; sr += px[i]; sg += px[i + 1]; sb += px[i + 2]; n++; }
+      if (!n) continue;
+      let bg = [sr / n, sg / n, sb / n];
+      bg = over([...dimC.slice(0, 3), dim], bg);
+      bg = over(fillOf(el), bg);
+      const L = lumOf(bg), was = el.classList.contains('ink-light') ? 'light' : el.classList.contains('ink-dark') ? 'dark' : null;
+      // the theme's ink stays while it reads well; a little hysteresis keeps a video from flickering it
+      const keep = contrast(themeInk, L) >= (was ? 5.2 : 4.5);
+      const want = keep ? null : contrast(LIGHT, L) >= contrast(DARK, L) ? 'light' : 'dark';
+      el.classList.toggle('ink-light', want === 'light');
+      el.classList.toggle('ink-dark', want === 'dark');
+    }
+  }
+  let inkT = 0;
+  const adaptSoon = () => { clearTimeout(inkT); inkT = setTimeout(adaptInk, 120); };
+  addEventListener('resize', adaptSoon);
+  // a video or an animated scene changes under the panels: look again now and then, while it can be seen
+  setInterval(() => {
+    if (!media || media.tagName === 'IMG' || document.hidden || document.documentElement.classList.contains('win-hidden')) return;
+    adaptInk();
+  }, 2000);
+
   // a video background rests while nothing of it can be seen
   setInterval(() => {
     if (!media || media.tagName !== 'VIDEO') return;
@@ -246,13 +350,76 @@ export function createAppearance({ S, save, bridge, toast, hslToRgb, rgbToHsl, c
     return wrap;
   }
 
+  /* ------------------------------ interface font ------------------------------ */
+  const isAndroid = /Android/i.test(navigator.userAgent);
+  /** tiles, each written in its own font: the theme's, the built-in list, and «from the computer» */
+  function fontRow() {
+    const wrap = h('div', { class: 'set-row ap-font-row' });
+    let listOpen = false, families = null;
+    const pickFont = (v) => { listOpen = false; setLook({ font: v }); paint(); };
+    const paint = () => {
+      const cur = look().font || 'theme';
+      wrap.innerHTML = '';
+      const tiles = h('div', { class: 'ap-fonts', role: 'radiogroup', 'aria-label': tr('ap.font') });
+      const tile = (v, name, stack) => {
+        const on = cur === v;
+        const b = h('button', { class: 'ap-font' + (on ? ' on' : ''), role: 'radio', 'aria-checked': String(on), title: name, style: stack ? { fontFamily: stack } : {} },
+          h('b', {}, 'Аа'), h('small', {}, name));
+        b.onclick = () => pickFont(v);
+        return b;
+      };
+      tiles.append(tile('theme', tr('ap.font.theme'), null));
+      for (const [id, stack, windowsOnly] of FONTS) if (!(windowsOnly && isAndroid)) tiles.append(tile(id, tr('ap.font.' + id), stack));
+      if (cur.startsWith(LOCAL)) tiles.append(tile(cur, cur.slice(LOCAL.length), fontStack(cur)));
+      // any font installed on the computer (Chromium's Local Font Access; phones don't have it)
+      if (typeof window.queryLocalFonts === 'function') {
+        const more = h('button', { class: 'ap-font more' + (listOpen ? ' on' : ''), title: tr('ap.font.local') }, h('b', {}, '+'), h('small', {}, tr('ap.font.local')));
+        more.onclick = async () => {
+          if (!families) {
+            try { families = [...new Set((await window.queryLocalFonts()).map((f) => f.family))].sort((a, b) => a.localeCompare(b)); } catch { families = []; }
+            if (!families.length) { families = null; toast(tr('ap.font.none')); return; }
+          }
+          listOpen = !listOpen; paint();
+        };
+        tiles.append(more);
+      }
+      wrap.append(h('div', { class: 'ap-bg-head' }, h('b', {}, tr('ap.font')), h('small', {}, tr('ap.fontD'))), tiles);
+      if (listOpen && families) {
+        const q = h('input', { class: 'set-input ap-font-q', placeholder: tr('ap.font.search') });
+        const list = h('div', { class: 'ap-font-list', role: 'listbox' });
+        // only the first matches are drawn: every row loads its own font, and a computer can have a thousand
+        const fill = () => {
+          const needle = q.value.trim().toLowerCase();
+          const hits = families.filter((f) => !needle || f.toLowerCase().includes(needle)).slice(0, 80);
+          list.innerHTML = '';
+          for (const f of hits) {
+            const v = LOCAL + f, row = h('button', { class: 'ap-font-item' + (cur === v ? ' on' : ''), role: 'option', style: { fontFamily: fontStack(v) } }, f);
+            row.onclick = () => pickFont(v);
+            list.append(row);
+          }
+          if (!hits.length) list.append(h('small', { class: 'ap-font-empty' }, tr('ap.font.nothing')));
+        };
+        q.oninput = fill;
+        q.onkeydown = (e) => { if (e.key === 'Escape') { listOpen = false; paint(); } e.stopPropagation(); };
+        fill();
+        wrap.append(h('div', { class: 'ap-font-pick' }, q, list));
+        setTimeout(() => q.focus(), 0);
+      }
+    };
+    paint();
+    return wrap;
+  }
+
   /** the «Оформление» block for Settings */
   function panel(getTrack) {
+    const glass = seg('blur', [['clear', tr('ap.blur.clear')], ['less', tr('ap.blur.less')], ['normal', tr('ap.blur.normal')], ['more', tr('ap.blur.more')], ['solid', tr('ap.blur.solid')]], tr('ap.blur'), tr('ap.blurD'));
+    glass.classList.add('ap-wide');
     return h('div', { class: 'ap' },
       accentRow(getTrack),
       seg('fx', [['live', tr('ap.fx.live')], ['calm', tr('ap.fx.calm')], ['still', tr('ap.fx.still')], ['off', tr('ap.fx.off')]], tr('ap.fx'), tr('ap.fxD')),
       bgRow(),
-      seg('blur', [['less', tr('ap.blur.less')], ['normal', tr('ap.blur.normal')], ['more', tr('ap.blur.more')]], tr('ap.blur'), tr('ap.blurD')));
+      glass,
+      fontRow());
   }
 
   return { apply, onTrack, panel, accentRow };

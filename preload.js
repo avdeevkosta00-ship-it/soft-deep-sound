@@ -44,7 +44,8 @@ contextBridge.exposeInMainWorld('sds', {
     globalKeys: (on) => ipcRenderer.invoke('keys:global', on),
     pickDownloads: () => ipcRenderer.invoke('downloads:pick'), resetDownloads: () => ipcRenderer.invoke('downloads:reset'), openDownloads: () => ipcRenderer.invoke('downloads:open'), setLang: (l) => ipcRenderer.invoke('app:lang', l),
     prefs: () => ipcRenderer.invoke('app:prefs'), pendingFiles: () => ipcRenderer.invoke('app:pendingFiles'),
-    onVisible: (cb) => ipcRenderer.on('win:visible', (_e, v) => cb(v)), setPref: (key, value) => ipcRenderer.invoke('app:setPref', { key, value })
+    onVisible: (cb) => ipcRenderer.on('win:visible', (_e, v) => cb(v)),
+    onFlush: (cb) => ipcRenderer.on('app:flush', async () => { try { await cb(); } finally { ipcRenderer.send('app:flushed'); } }), setPref: (key, value) => ipcRenderer.invoke('app:setPref', { key, value })
   },
   media: {
     state: (st) => ipcRenderer.send('media:state', st),

@@ -12,7 +12,10 @@ const JUNK = '(?:official\\s*(?:music\\s*)?(?:audio|video|visualizer)|lyrics?(?:
 // \b only knows Latin letters, so word edges are spelled out to work for Cyrillic too
 const L = '(?<![\\p{L}\\p{N}])', R = '(?![\\p{L}\\p{N}])';
 const JUNK_BRACKET = new RegExp(`\\s*[\\[({][^\\])}]*${L}${JUNK}${R}[^\\])}]*[\\])}]`, 'giu');
-const JUNK_TAIL = new RegExp(`\\s*[-–—|]?\\s*${L}${JUNK}\\s*$`, 'iu');
+// at the very end, outside brackets: words that are never a real title go on their own; ambiguous ones
+// (audio, lyrics, hd, клип…) only after a spaced dash or bar — «Song - Lyrics» yes, «not-audio», «Video Killed…» no
+const SURE = '(?:official\\s*(?:music\\s*)?(?:audio|video|visualizer)|\\d{2,3}\\s*kbps|free\\s*download|скачать|бесплатно|премьера(?:\\s*(?:трека|клипа))?)';
+const JUNK_TAIL = new RegExp(`(?:\\s*[-–—|]?\\s*${L}${SURE}|\\s+[-–—|]\\s*${L}${JUNK})\\s*$`, 'iu');
 
 /** site names, ids and «official audio»-style junk out of one name (a tag value or a whole file name) */
 export function stripJunk(raw) {

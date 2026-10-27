@@ -74,9 +74,9 @@ async function loadState() {
     S.shuffle = !!d.shuffle; S.repeat = d.repeat || 'off'; S.lastPos = d.lastPos || 0; S.history = d.history || [];
   }
   index();
-  const curId = S.queue[S.qi];
+  const curId = S.queue[S.qi], kept = S.queue.slice(0, Math.max(0, S.qi)).filter((id) => S.byId.has(id)).length;
   S.queue = S.queue.filter((id) => S.byId.has(id));
-  S.qi = curId && S.byId.has(curId) ? S.queue.indexOf(curId) : Math.min(S.qi, S.queue.length - 1);
+  S.qi = curId && S.byId.has(curId) ? kept : Math.min(S.qi, S.queue.length - 1);
 }
 const save = debounce(() => bridge.store.save({
   v: 1, tracks: S.tracks, playlists: S.playlists, settings: S.settings, queue: S.queue, qi: S.qi,
@@ -95,16 +95,20 @@ async function importPaths(paths) {
   catch (e) { console.error(e); toast(tr('toast.importFail', { msg: e.message || e })); return; }
   finally { t.close(); }
   const added = [];
+  // Windows paths ignore letter case: «C:\Music\a.mp3» and «c:\music\A.MP3» are one file
+  const key = (p) => (/^[a-z]:[\\/]/i.test(p) ? p.toLowerCase() : p);
+  const byPath = new Map(S.tracks.map((x) => [key(x.path), x]));
   for (const tr of probed) {
-    const ex = T(tr.id);
+    const ex = T(tr.id) || byPath.get(key(tr.path));
     if (ex) {
+      tr.id = ex.id; tr.path = ex.path; // the same file under another spelling stays the track it was
       // re-import refreshes the file data but keeps everything the user set by hand
       const keep = {};
       for (const k of ex.edited || []) keep[k] = ex[k];
       Object.assign(ex, { ...tr, addedAt: ex.addedAt, bpm: ex.bpmManual ? ex.bpm : ex.bpm || tr.bpm, peaks: ex.peaks, cover: ex.customCover ? ex.cover : tr.cover, plays: ex.plays, lastPlayed: ex.lastPlayed }, keep);
       continue;
     }
-    S.tracks.push(tr); added.push(tr.id);
+    S.tracks.push(tr); added.push(tr.id); byPath.set(key(tr.path), tr);
   }
   index(); save(); renderSidebar();
   if (['library', 'recent'].includes(S.view.type)) render(false);
@@ -152,7 +156,7 @@ function removeFromLibrary(ids) {
     S.current = null;
     if (before < S.queue.length) { S.qi = before; loadCurrent(was); } // the music simply moves on
     else { S.qi = S.queue.length ? S.queue.length - 1 : -1; if (S.qi >= 0) loadCurrent(false); else clearNowPlaying(); }
-  } else S.qi = Math.max(-1, S.queue.indexOf(cur));
+  } else S.qi = cur ? before : -1;
   save(); renderSidebar(); render(false); renderUpNext(); renderCounts();
   toast(tn('toast.removedN', ids.length));
 }
@@ -237,7 +241,9 @@ async function loadCurrent(autoplay = true, at = 0, crossfade = 0) {
     toast(tr('toast.openFail', { title: t.title }));
     // a missing/broken file shouldn't stop the music: move on (but never loop forever)
     if (autoplay && ++loadFails < Math.min(5, S.queue.length) && S.qi < S.queue.length - 1) { S.qi++; return loadCurrent(true); }
-    loadFails = 0; return;
+    loadFails = 0;
+    if (!engine.playing) engine.dispatchEvent(new Event('pause')); // nothing plays: the UI must say so too
+    return;
   }
   if (!t.stream) analyze(t);
   deep && deep.update();
@@ -262,6 +268,7 @@ function togglePlay() {
     if (list.length) playFrom(list, 0);
     return;
   }
+  if (engine.broken && !engine.loading) { loadCurrent(true); return; }
   engine.toggle();
 }
 function shuffleArr(a) { for (let i = a.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [a[i], a[j]] = [a[j], a[i]]; } return a; }
@@ -988,12 +995,17 @@ const SHOWCASE = [
 /** the phone layout (Android app or a narrow window): one column, tap plays */
 const phone = matchMedia('(max-width: 760px)');
 // the on-screen keyboard shrinks the window: while it is up, the player strip and the tab bar step aside
+// (only while a text field has focus: a window that was simply made shorter is not a keyboard)
 {
-  let full = innerHeight;
-  addEventListener('resize', () => {
-    if (innerHeight > full) full = innerHeight;
-    document.documentElement.classList.toggle('kb', phone.matches && innerHeight < full * .78);
-  });
+  let full = innerHeight, w = innerWidth;
+  const typing = () => { const el = document.activeElement; return !!el && (el.matches('input:not([type=range]):not([type=checkbox]):not([type=radio]), textarea') || el.isContentEditable); };
+  const check = () => {
+    if (innerWidth !== w) { w = innerWidth; full = innerHeight; } // rotated or resized sideways: a new baseline
+    if (innerHeight > full || !typing()) full = Math.max(innerHeight, typing() ? full : 0);
+    document.documentElement.classList.toggle('kb', phone.matches && typing() && innerHeight < full * .78);
+  };
+  addEventListener('resize', check);
+  addEventListener('focusout', () => setTimeout(check, 50));
   addEventListener('orientationchange', () => { full = 0; });
 }
 
@@ -1070,6 +1082,18 @@ function openSession() {
 }
 
 /* ---------------------------- track list ---------------------------- */
+// the column labels get a backing only while they stick to the top, so at rest they stay part of the panel
+let stuckRaf = 0;
+addEventListener('scroll', (e) => {
+  const v = e.target;
+  if (stuckRaf || !v.classList || !v.classList.contains('view')) return;
+  stuckRaf = requestAnimationFrame(() => {
+    stuckRaf = 0;
+    const head = v.querySelector('.tl-head');
+    if (head) head.classList.toggle('stuck', head.getBoundingClientRect().top - v.getBoundingClientRect().top < 1);
+  });
+}, true);
+
 function trackList(ids, opts) {
   const wrap = h('div', { class: 'tlist' });
   wrap.append(h('div', { class: 'tl-head' }, h('span', { style: { textAlign: 'center' } }, '#'), h('span'), h('span', {}, tr('col.title')), h('span', {}, tr('col.album')), h('span', {}, 'BPM'), h('span', { style: { textAlign: 'right' } }, tr('col.time')), h('span')));
@@ -1145,7 +1169,7 @@ function trackMenu(x, y, ids, opts = {}, idx) {
     { text: tr('m.newPl'), onClick: () => { const pl = createPlaylist(defaultPlName(), ids); startRename(pl.id); } }
   ];
   if (opts.playlist) items.push('-', { text: tr('m.fromPl'), onClick: () => { opts.playlist.trackIds = opts.playlist.trackIds.filter((id) => !ids.includes(id)); save(); renderSidebar(); render(false); } });
-  if (opts.queue) items.push('-', { text: tr('m.fromQueue'), onClick: () => { const cur = S.queue[S.qi]; S.queue = S.queue.filter((id, i) => !(ids.includes(id) && id !== cur)); S.qi = S.queue.indexOf(cur); save(); renderUpNext(); render(false); } });
+  if (opts.queue) items.push('-', { text: tr('m.fromQueue'), onClick: () => { const cur = S.queue[S.qi], drop = (id) => ids.includes(id) && id !== cur; S.qi = S.queue.slice(0, Math.max(0, S.qi)).filter((id) => !drop(id)).length; S.queue = S.queue.filter((id) => !drop(id)); if (!cur) S.qi = -1; save(); renderUpNext(); render(false); } });
   items.push('-');
   if (one) items.push({ text: tr('m.export'), onClick: () => openExport(one) });
   if (one && bridge.isElectron) items.push({ text: tr('m.trim'), onClick: () => trim.open(one) });
@@ -1605,8 +1629,8 @@ function themeCards(onPick) {
       h('i', { style: { left: '8%', top: '82%', width: '84%', height: '8%', background: t.p } }),
       h('i', { style: { left: '46%', top: '80%', width: '10px', height: '10px', borderRadius: '50%', background: t.a } }));
     const c = h('button', { class: 'theme-card' + (S.settings.theme === t.key ? ' on' : '') }, pv, h('b', {}, tr(t.name)), h('small', {}, tr(t.desc)));
-    // a phone changes the theme under the same veil as the Soft/Deep switch (repainting it all in the open stutters)
-    c.onclick = () => { if (t.key === S.settings.theme) return; phone.matches && !reducedMotion() ? dipToTheme(t.key) : applyTheme(t.key); c.parentNode.querySelectorAll('.theme-card').forEach((x) => x.classList.toggle('on', x === c)); onPick && onPick(); };
+    // the theme changes under a veil: repainting the whole window in the open stutters
+    c.onclick = () => { if (t.key === S.settings.theme) return; !reducedMotion() ? dipToTheme(t.key) : applyTheme(t.key); c.parentNode.querySelectorAll('.theme-card').forEach((x) => x.classList.toggle('on', x === c)); onPick && onPick(); };
     return c;
   }));
 }
@@ -1953,6 +1977,7 @@ async function boot() {
   } else $('#miniBtn').remove();
   if (S.settings.outputId) engine.setOutput(S.settings.outputId).then((ok) => { if (!ok) { S.settings.outputId = ''; save(); } });
   bindMedia();
+  if (bridge.app.onFlush) bridge.app.onFlush(() => save.flush && save.flush()); // the app is closing: write now
   if (bridge.app.onVisible) bridge.app.onVisible((v) => document.documentElement.classList.toggle('win-hidden', !v));
 
   // restore last session (paused, at the last position)

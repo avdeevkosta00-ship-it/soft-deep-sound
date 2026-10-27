@@ -123,6 +123,14 @@ function createWindow() {
   });
   Menu.setApplicationMenu(null);
   win.loadURL('sds://app/index.html');
+  // a crashed renderer would leave a dead window: reload it (but don't loop on a renderer that keeps dying)
+  let crashes = [];
+  win.webContents.on('render-process-gone', (_e, d) => {
+    logError('renderer-gone', new Error(d.reason + ' ' + (d.exitCode ?? '')));
+    if (quitting || d.reason === 'clean-exit') return;
+    crashes = crashes.filter((t) => Date.now() - t < 60000).concat(Date.now());
+    if (crashes.length <= 3 && !win.isDestroyed()) win.reload();
+  });
   win.once('ready-to-show', () => {
     if (prefs.maximized) win.maximize();
     if (startHidden) { sendVisibility(); return; } // launched with Windows: stay in the tray
@@ -130,7 +138,10 @@ function createWindow() {
   });
   // closing the window hides it to the tray; music keeps playing (Quit from the tray menu really exits)
   win.on('close', (e) => {
-    if (quitting || !prefs.closeToTray) return;
+    if (quitting || !prefs.closeToTray) {
+      if (!flushed) { e.preventDefault(); flushRenderer().then(() => { if (win && !win.isDestroyed()) win.close(); }); }
+      return;
+    }
     e.preventDefault();
     win.hide();
     if (!prefs.trayHintShown) {
@@ -216,6 +227,7 @@ async function probe(filePath) {
     if (c.album) track.album = c.album;
     if (c.bpm) track.bpm = Math.round(c.bpm);
     track.duration = meta.format.duration || 0;
+    if (!track.duration && !meta.format.sampleRate && !meta.format.codec) track.unreadable = true; // a header with nothing behind it
     Object.assign(track, formatFields(meta));
     if (c.genre && c.genre.length) track.genre = c.genre.join(', ');
     if (c.year) track.year = c.year;
@@ -228,7 +240,7 @@ async function probe(filePath) {
       await fsp.writeFile(cp, pic.data);
       track.cover = cp;
     }
-  } catch (e) { /* unreadable tags — keep filename fallback */ }
+  } catch (e) { track.unreadable = true; } // not audio at all (empty, text, random bytes): the import skips it
   return track;
 }
 
@@ -320,6 +332,7 @@ function setGlobalKeys(on) {
 
 /* ------------------------------------- tray ------------------------------------- */
 let tray = null, quitting = false, pendingFiles = [];
+let saveChain = Promise.resolve();
 const media = { title: '', artist: '', playing: false, hasTrack: false };
 const prefsFile = () => path.join(userDir(), 'prefs.json');
 let prefs = { closeToTray: true, trayHintShown: false };
@@ -328,11 +341,24 @@ function savePrefs() { try { fs.writeFileSync(prefsFile(), JSON.stringify(prefs)
 const img = (name) => nativeImage.createFromPath(path.join(__dirname, 'build', name));
 const send = (cmd) => { if (win && !win.isDestroyed()) win.webContents.send('media:cmd', cmd); };
 function showWindow() {
-  if (!win) return;
+  if (!win || win.isDestroyed()) { if (!quitting && app.isReady()) createWindow(); return; }
   if (win.isMinimized()) win.restore();
   win.show(); win.focus();
 }
 function quitApp() { quitting = true; app.quit(); }
+/** the renderer debounces its saves: before the window goes, ask it to write now and wait for the file (≤ 1.5 s) */
+let flushed = false, flushing = null;
+function flushRenderer() {
+  if (flushed || !win || win.isDestroyed()) { flushed = true; return Promise.resolve(); }
+  if (!flushing) flushing = new Promise((resolve) => {
+    const done = () => { ipcMain.removeListener('app:flushed', onDone); clearTimeout(tm); resolve(); };
+    const onDone = () => { saveChain.catch(() => {}).then(done); }; // IPC is ordered: the save has been queued by now
+    const tm = setTimeout(done, 1500);
+    ipcMain.on('app:flushed', onDone);
+    win.webContents.send('app:flush');
+  }).then(() => { flushed = true; });
+  return flushing;
+}
 let prefsTimer = null;
 function savePrefsSoon() { clearTimeout(prefsTimer); prefsTimer = setTimeout(savePrefs, 600); }
 /** the renderer pauses its animation loops while nobody can see them (music keeps playing) */
@@ -422,7 +448,6 @@ function registerIpc() {
     try { return JSON.parse(await fsp.readFile(storeFile(), 'utf8')); } catch { return null; }
   });
   // saves are serialised: a slow write can never race the next one
-  let saveChain = Promise.resolve();
   ipcMain.handle('store:save', (_e, data) => {
     const json = JSON.stringify(data);
     saveChain = saveChain.catch(() => {}).then(async () => {
@@ -444,7 +469,7 @@ function registerIpc() {
   ipcMain.handle('library:probe', async (_e, paths) => {
     const files = await collectAudio(Array.isArray(paths) ? paths : []);
     const out = [];
-    for (const f of files) out.push(await probe(f));
+    for (const f of files) { const t = await probe(f); if (!t.unreadable) out.push(t); }
     return out;
   });
   // custom artwork for a track or playlist: copied into our cover cache so it survives moves of the original
@@ -653,7 +678,10 @@ else {
     // files from "Open with": the renderer asks for them once it is ready (no fixed delay)
     pendingFiles = process.argv.slice(1).filter((a) => AUDIO_EXT.has(path.extname(a).toLowerCase())).map((a) => path.resolve(a));
   });
-  app.on('before-quit', () => { quitting = true; });
+  app.on('before-quit', (e) => {
+    quitting = true;
+    if (!flushed && win && !win.isDestroyed()) { e.preventDefault(); flushRenderer().then(() => app.quit()); }
+  });
   app.on('will-quit', () => globalShortcut.unregisterAll());
   // Windows logoff / shutdown must never be blocked by close-to-tray
   app.on('session-end', () => { quitting = true; });
