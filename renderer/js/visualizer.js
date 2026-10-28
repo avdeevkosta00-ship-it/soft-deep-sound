@@ -25,7 +25,7 @@ export class Visualizer {
       requestAnimationFrame(loop);
       const b = document.body.classList;
       if (document.documentElement.classList.contains('win-hidden') || document.hidden || b.contains('deep-open') || b.contains('visual-open')) return;
-      if (now - last < (this.isPlaying() ? 15.5 : 32)) return;
+      if (now - last < (this.eco ? 33 : this.isPlaying() ? 15.5 : 32)) return;   // economy mode: 30 fps
       this.dt = Math.min(.1, (now - last) / 1000); last = now; this.frame();
     };
     requestAnimationFrame(loop);

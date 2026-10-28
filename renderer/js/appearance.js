@@ -23,6 +23,7 @@ const VARS = ['--accent', '--accent-2', '--accent-rgb', '--accent-deep', '--on-a
   '--blue-rgb', '--n1', '--n2', '--n3', '--n1-rgb', '--n3-rgb', '--shape-c1', '--shape-c2', '--shape-c3',
   '--line', '--line-faint', '--shade', '--glass-edge', '--groove', '--groove-edge', '--chrome-4', '--viz-a'];
 const BLUR = { less: '8px', more: '44px' };
+const ECO = document.documentElement.classList.contains('eco');   // economy mode, fixed for this start (early.js)
 /** interface fonts: bundled ones work everywhere; the last three are Windows fonts, so phones don't list them */
 export const FONTS = [
   ['system', 'system-ui, "Segoe UI Variable", "Segoe UI", Roboto, sans-serif'],
@@ -86,12 +87,13 @@ export function createAppearance({ S, save, bridge, toast, hslToRgb, rgbToHsl, c
         '--groove': rgba(a, .055), '--groove-edge': rgba(a, .14), '--chrome-4': rgba(a, .25) });
       for (const [k, v] of Object.entries(set)) st.setProperty(k, v);
     }
-    root.dataset.fx = L.fx || 'live';
+    root.dataset.fx = ECO ? 'off' : L.fx || 'live';
     renderBackground();
     if (BLUR[L.blur]) st.setProperty('--blur', BLUR[L.blur]); else st.removeProperty('--blur');
     if (L.blur === 'clear' || L.blur === 'solid') root.dataset.glass = L.blur; else delete root.dataset.glass;
     const stack = fontStack(L.font);
     if (stack) { st.setProperty('--font', stack); st.setProperty('--display', stack); } else { st.removeProperty('--font'); st.removeProperty('--display'); }
+    seen = new WeakMap();   // a new look: decide afresh, not from the last background's history
     adaptSoon();
     onChange && onChange();
   }
@@ -177,7 +179,8 @@ export function createAppearance({ S, save, bridge, toast, hslToRgb, rgbToHsl, c
   function renderBackground() {
     const root = document.documentElement, L = look();
     const pid = presetOf(L.bgActive);
-    const item = pid ? { kind: 'preset', path: L.bgActive } : (L.bgList || []).find((b) => b.path === L.bgActive);
+    // economy mode shows no animated scenes: the theme's own backdrop instead
+    const item = pid ? (ECO ? null : { kind: 'preset', path: L.bgActive }) : (L.bgList || []).find((b) => b.path === L.bgActive);
     if (!item || item.path !== mediaPath) {
       if (media) media.remove();
       if (preset && (!item || item.kind !== 'preset')) preset.stop();
@@ -201,7 +204,7 @@ export function createAppearance({ S, save, bridge, toast, hslToRgb, rgbToHsl, c
     media.crossOrigin = 'anonymous';
     media.src = src;
     media.addEventListener(item.kind === 'video' ? 'loadeddata' : 'load', adaptSoon);
-    if (item.kind === 'video') { media.muted = true; media.play().catch(() => {}); }
+    if (item.kind === 'video') { media.muted = true; if (!ECO) media.play().catch(() => {}); }   // economy mode: the first frame, still
     // the copy is gone (cleaned up by hand): fall back to the theme instead of a blank screen
     media.onerror = () => { if (look().bgActive === item.path) { look().bgActive = null; save(); renderBackground(); } };
     layer.append(media);
@@ -209,15 +212,20 @@ export function createAppearance({ S, save, bridge, toast, hslToRgb, rgbToHsl, c
   }
   /* ------------------------------ text that keeps reading ------------------------------ */
   /**
-   * Over a background of your own the theme's text colour can land on a backdrop of the same brightness.
-   * The picture is sampled into a tiny canvas; for every panel the part behind it is averaged, mixed with
-   * the dimming layer and the panel's own glass, and when the theme's ink no longer stands out the panel
-   * switches to light or dark ink (.ink-light / .ink-dark). Videos and animated scenes are re-sampled
-   * every couple of seconds.
+   * Whatever is behind the interface (your own picture or video, a built-in scene, the theme's living
+   * background) can land at the same brightness as the text. It is sampled into a tiny canvas and, for every
+   * panel, the part behind it is averaged and mixed with the dimming layer and the panel's own glass.
+   *   • The text keeps the theme's colours. When they stop reading, the panel gets a scrim (its ::before,
+   *     --scrim) just strong enough for the secondary text to reach 4.5:1, so it eases in and out smoothly
+   *     instead of switching.
+   *   • Only where there is nothing to darken — the title bar, or panels in «Clear» glass — the text may flip
+   *     to the opposite ink (.ink-light / .ink-dark), and only when that clearly wins and stays winning for
+   *     a few looks in a row, so a moving background can't make it blink.
    */
   const PANELS = ['.titlebar', '.sidebar', '.content', '.nowplaying', '.deck'];
   const SW = 64, SH = 36;
   let probe = null, probeG = null, one = null;
+  let seen = new WeakMap();   // panel → { bg: smoothed backdrop, flip: pending flip, n: looks it has held }; reset on every look change
   /** any CSS colour → [r, g, b, a 0..1], through the canvas so hex, rgba() and color() all work */
   function rgbaOf(css) {
     if (!one) one = h('canvas', { width: 1, height: 1 }).getContext('2d', { willReadFrequently: true });
@@ -237,25 +245,57 @@ export function createAppearance({ S, save, bridge, toast, hslToRgb, rgbToHsl, c
     const m = /(rgba?\([^)]*\)|color\([^)]*\)|#[0-9a-f]{3,8})/i.exec(cs.backgroundImage || '');
     return m ? rgbaOf(m[1]) : [0, 0, 0, 0];
   }
+  /** paint what is behind the interface into the probe; false when there is nothing readable to paint */
+  function paintBehind(root) {
+    if (!probe) { probe = h('canvas', { width: SW, height: SH }); probeG = probe.getContext('2d', { willReadFrequently: true }); }
+    const vw = innerWidth, vh = innerHeight, cs = getComputedStyle(root);
+    // the theme's own backdrop first (the body gradient), then whatever is drawn over it
+    const gr = probeG.createLinearGradient(SW * .3, 0, SW * .7, SH);
+    gr.addColorStop(0, cs.getPropertyValue('--bg-1').trim() || '#888');
+    gr.addColorStop(.55, cs.getPropertyValue('--bg-2').trim() || '#888');
+    gr.addColorStop(1, cs.getPropertyValue('--bg-3').trim() || '#888');
+    probeG.fillStyle = gr; probeG.fillRect(0, 0, SW, SH);
+    try {
+      if (root.dataset.userbg && media) {
+        const w = media.videoWidth || media.naturalWidth || media.width, hh = media.videoHeight || media.naturalHeight || media.height;
+        if (!w || !hh) return false;
+        // the same crop as object-fit: cover, scaled down to the probe
+        const k = Math.max(vw / w, vh / hh), dw = w * k * SW / vw, dh = hh * k * SH / vh;
+        probeG.drawImage(media, (SW - dw) / 2, (SH - dh) / 2, dw, dh);
+        const dim = root.dataset.userbg === 'preset' ? 0 : (parseFloat(cs.getPropertyValue('--ubg-dim')) || 0);
+        if (dim) { probeG.globalAlpha = dim; probeG.fillStyle = cs.getPropertyValue('--bg-2').trim() || '#000'; probeG.fillRect(0, 0, SW, SH); probeG.globalAlpha = 1; }
+      } else {
+        const fx = document.getElementById('bgfx');
+        if (fx && fx.width && getComputedStyle(fx).display !== 'none') probeG.drawImage(fx, 0, 0, SW, SH);
+      }
+      return probeG.getImageData(0, 0, SW, SH).data;
+    } catch { return false; }
+  }
+  /** how much of `scrim` must lie over `L` for text of luminance `ink` to reach `target` (0 when it already does) */
+  function scrimNeed(ink, L, scrim, bg, target) {
+    if (contrast(ink, L) >= target) return 0;
+    for (let a = .05; a <= .8; a += .05) if (contrast(ink, lumOf(over([...scrim, a], bg))) >= target) return a;
+    return .8;
+  }
   function adaptInk() {
     const root = document.documentElement;
     const els = PANELS.map((s) => document.querySelector(s)).filter(Boolean);
-    const clear = () => els.forEach((el) => el.classList.remove('ink-light', 'ink-dark'));
-    if (!root.dataset.userbg || !media) return clear();
-    const w = media.videoWidth || media.naturalWidth || media.width, hh = media.videoHeight || media.naturalHeight || media.height;
-    if (!w || !hh) return;
-    if (!probe) { probe = h('canvas', { width: SW, height: SH }); probeG = probe.getContext('2d', { willReadFrequently: true }); }
-    // the same crop as object-fit: cover, scaled down to the probe
-    const vw = innerWidth, vh = innerHeight, k = Math.max(vw / w, vh / hh);
-    const dw = w * k * SW / vw, dh = hh * k * SH / vh;
-    let px;
-    try { probeG.drawImage(media, (SW - dw) / 2, (SH - dh) / 2, dw, dh); px = probeG.getImageData(0, 0, SW, SH).data; } catch { return; }
-    const cs = getComputedStyle(root);
-    const dimC = rgbaOf(cs.getPropertyValue('--bg-2').trim() || '#000');
-    const dim = root.dataset.userbg === 'preset' ? 0 : (parseFloat(cs.getPropertyValue('--ubg-dim')) || 0);
-    const themeInk = lumOf(rgbaOf(cs.getPropertyValue('--ink').trim()));
-    const LIGHT = lumOf([244, 246, 251]), DARK = lumOf([14, 18, 34]);
+    // economy mode and solid glass: the panels are opaque, so the theme's colours read there as they are;
+    // the title bar still sits right on the background
+    const opaque = root.classList.contains('eco') || root.dataset.glass === 'solid';
+    if (opaque) els.filter((el) => !el.matches('.titlebar')).forEach((el) => { el.classList.remove('ink-light', 'ink-dark'); el.style.removeProperty('--scrim'); });
+    const px = paintBehind(root);
+    if (!px) return;
+    const vw = innerWidth, vh = innerHeight, cs = getComputedStyle(root);
+    const dark = root.dataset.tone === 'dark';
+    // secondary text (--ink-2) must reach 4.5:1 and the faint labels (--ink-3) 3:1 — those are what blend first
+    const ink2 = lumOf(rgbaOf(cs.getPropertyValue('--ink-2').trim())), ink3 = lumOf(rgbaOf(cs.getPropertyValue('--ink-3').trim()));
+    const OPP_INK2 = dark ? [14, 18, 34, .78] : [244, 246, 251, .8], OPP_INK3 = dark ? [14, 18, 34, .58] : [244, 246, 251, .6];   // of .ink-dark / .ink-light
+    const SCRIM = dark ? [8, 8, 12] : [250, 251, 255], SCRIM_OPP = dark ? [250, 251, 255] : [8, 8, 12];
+    const clearGlass = root.dataset.glass === 'clear', moving = isMoving(root);
     for (const el of els) {
+      el.classList.remove(dark ? 'ink-light' : 'ink-dark');   // left over from the other tone
+      if (opaque && !el.matches('.titlebar')) continue;
       const r = el.getBoundingClientRect();
       if (!r.width || !r.height) continue;
       const x0 = Math.max(0, Math.floor(r.left / vw * SW)), x1 = Math.min(SW, Math.ceil(r.right / vw * SW));
@@ -263,31 +303,47 @@ export function createAppearance({ S, save, bridge, toast, hslToRgb, rgbToHsl, c
       let sr = 0, sg = 0, sb = 0, n = 0;
       for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const i = (y * SW + x) * 4; sr += px[i]; sg += px[i + 1]; sb += px[i + 2]; n++; }
       if (!n) continue;
-      let bg = [sr / n, sg / n, sb / n];
-      bg = over([...dimC.slice(0, 3), dim], bg);
-      bg = over(fillOf(el), bg);
-      const L = lumOf(bg), was = el.classList.contains('ink-light') ? 'light' : el.classList.contains('ink-dark') ? 'dark' : null;
-      // the theme's ink stays while it reads well; a little hysteresis keeps a video from flickering it
-      const keep = contrast(themeInk, L) >= (was ? 5.2 : 4.5);
-      const want = keep ? null : contrast(LIGHT, L) >= contrast(DARK, L) ? 'light' : 'dark';
-      el.classList.toggle('ink-light', want === 'light');
-      el.classList.toggle('ink-dark', want === 'dark');
+      const bg = over(fillOf(el), [sr / n, sg / n, sb / n]);
+      // smoothed, so one bright frame of a video doesn't move anything
+      const fresh = !seen.has(el), st = seen.get(el) || { bg: null, flip: null, n: 0 };
+      st.bg = st.bg ? st.bg.map((v, i) => v * .6 + bg[i] * .4) : bg;
+      const L = lumOf(st.bg);
+      const mayFlip = el.matches('.titlebar') || clearGlass;
+      const needTheme = Math.max(scrimNeed(ink2, L, SCRIM, st.bg, 4.5), scrimNeed(ink3, L, SCRIM, st.bg, 3));
+      const needOpp = Math.max(scrimNeed(lumOf(over(OPP_INK2, st.bg)), L, SCRIM_OPP, st.bg, 4.5), scrimNeed(lumOf(over(OPP_INK3, st.bg)), L, SCRIM_OPP, st.bg, 3));
+      const flipped = el.classList.contains(dark ? 'ink-dark' : 'ink-light');
+      // flip only when the other ink reads clearly better, and only after it has kept winning for three looks
+      const wantFlip = mayFlip && (flipped ? needOpp <= needTheme + .15 : needOpp + .3 < needTheme);
+      if (wantFlip !== flipped) {
+        st.n = st.flip === wantFlip ? st.n + 1 : 1; st.flip = wantFlip;
+        if (st.n >= (moving && !fresh ? 3 : 1)) { el.classList.toggle(dark ? 'ink-dark' : 'ink-light', wantFlip); st.n = 0; st.flip = null; }
+      } else { st.n = 0; st.flip = null; }
+      seen.set(el, st);
+      const nowFlipped = el.classList.contains(dark ? 'ink-dark' : 'ink-light');
+      // the title bar has no panel to darken; in clear glass the scrim stays light-handed
+      const need = el.matches('.titlebar') ? 0 : Math.min(nowFlipped ? needOpp : needTheme, clearGlass ? .45 : .8);
+      const c = nowFlipped ? SCRIM_OPP : SCRIM;
+      el.style.setProperty('--scrim', `rgba(${c.join(', ')}, ${need.toFixed(2)})`);
     }
   }
   let inkT = 0;
-  const adaptSoon = () => { clearTimeout(inkT); inkT = setTimeout(adaptInk, 120); };
+  // twice: the living background may draw its first frame only after a theme or glass change has landed
+  const adaptSoon = () => { clearTimeout(inkT); inkT = setTimeout(() => { adaptInk(); inkT = setTimeout(adaptInk, 1200); }, 120); };
+  /** true while what's behind the panels keeps changing (a video, a scene, the living background) */
+  const isMoving = (root) => (root.dataset.userbg ? !!media && media.tagName !== 'IMG' : root.dataset.fx !== 'off' && root.dataset.fx !== 'still');
   addEventListener('resize', adaptSoon);
-  // a video or an animated scene changes under the panels: look again now and then, while it can be seen
+  // a video, a scene or the living background moves under the panels: look again now and then, while it can be seen
   setInterval(() => {
-    if (!media || media.tagName === 'IMG' || document.hidden || document.documentElement.classList.contains('win-hidden')) return;
-    adaptInk();
+    const root = document.documentElement;
+    if (document.hidden || root.classList.contains('win-hidden') || root.classList.contains('eco')) return;
+    if (isMoving(root)) adaptInk();
   }, 2000);
 
   // a video background rests while nothing of it can be seen
   setInterval(() => {
     if (!media || media.tagName !== 'VIDEO') return;
     const b = document.body.classList, hidden = document.hidden || document.documentElement.classList.contains('win-hidden') || b.contains('deep-open') || b.contains('visual-open');
-    if (hidden && !media.paused) media.pause(); else if (!hidden && media.paused) media.play().catch(() => {});
+    if ((hidden || ECO) && !media.paused) media.pause(); else if (!hidden && !ECO && media.paused) media.play().catch(() => {});
   }, 1000);
 
   /** gallery: «theme» + every background ever added + «add»; the chosen one is ringed */

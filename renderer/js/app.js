@@ -51,7 +51,8 @@ const S = {
 const engine = new AudioEngine();
 const ambient = new Ambient(engine);
 let viz, wave, tools, layout, bg, deep, visual, shapes, tour, repair, look, trim;
-const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+const ECO = document.documentElement.classList.contains('eco');   // economy mode, fixed for this start (early.js)
+const reducedMotion = () => ECO || matchMedia('(prefers-reduced-motion: reduce)').matches;
 const preview = new Audio();
 
 const index = () => { S.byId = new Map(S.tracks.map((t) => [t.id, t])); };
@@ -1770,6 +1771,24 @@ function updateRows() {
   ];
 }
 
+/* economy mode: no sphere, no living background, no blur, no entrance animations — for slower phones and PCs.
+   It's read once at start (early.js), so switching it asks for a restart: the interface reloads, the library
+   is saved first. */
+const ecoWanted = () => { try { return localStorage.getItem('sds-eco') === '1'; } catch { return ECO; } };
+function setEco(on) {
+  try { localStorage.setItem('sds-eco', on ? '1' : '0'); } catch {}
+  S.settings.eco = on; save();
+  if (on === ECO) return;   // switched back before restarting: nothing to do
+  const restart = async () => { try { await (save.flush && save.flush()); } catch {} location.reload(); };
+  openModal(h('div', { class: 'modal-card' },
+    h('div', { class: 'v-kicker' }, tr('set.eco')), h('h3', {}, tr('eco.restartT')),
+    h('p', { class: 'modal-p' }, tr(on ? 'eco.restartOn' : 'eco.restartOff')),
+    h('div', { class: 'modal-acts' },
+      h('span', { class: 'grow' }),
+      h('button', { class: 'chip-btn', onClick: () => { closeModal(); setTimeout(openSettings, 60); } }, tr('eco.later')),
+      h('button', { class: 'chip-btn on', onClick: restart }, tr('eco.now')))));
+}
+
 async function openSettings() {
   const paths = await bridge.app.paths();
   const prefs = bridge.app.prefs ? await bridge.app.prefs() : null;
@@ -1782,6 +1801,7 @@ async function openSettings() {
     h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('set.lang')), h('small', {}, tr('set.langD'))),
       h('div', { class: 'seg' }, ...LANGS.map(([k, name]) => h('button', { class: getLang() === k ? 'on' : '', onClick: () => { applyLang(k); openSettings(); } }, name)))),
     h('div', { class: 'set-row', style: { display: 'block' } }, h('b', { style: { marginBottom: '10px' } }, tr('set.theme')), themeCards()),
+    h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('set.eco')), h('small', {}, tr('set.ecoD'))), tg(ecoWanted(), setEco)),
     look.panel(() => S.current),
     ...(await playbackRows(tg)),
     ...updateRows(),
@@ -1918,7 +1938,8 @@ async function boot() {
   viz.bassEls = [$('#coverFrame'), $('#playBtn')];
   wave = new WaveSeek($('#waveCanvas'));
   bg = new BackgroundFX($('#bgfx'), { isPlaying: () => engine.playing, energy: () => Math.min(1, viz.bass * 1.4) });
-  try { // detailed animated forms; without WebGL the 2D backdrop draws simple bubbles instead
+  if (ECO) { viz.eco = true; $('#shapes').remove(); }   // economy mode: no sphere, the living background stays off
+  else try { // detailed animated forms; without WebGL the 2D backdrop draws simple bubbles instead
     shapes = new Shapes($('#shapes'), { isPlaying: () => engine.playing, energy: () => Math.min(1, viz.bass * 1.4) });
     bg.gl = true; bg.resize();
   } catch (e) { console.warn('shapes off:', e.message); $('#shapes').remove(); }

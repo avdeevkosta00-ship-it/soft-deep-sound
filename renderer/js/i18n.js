@@ -77,6 +77,8 @@ const RU = {
   // settings
   'set.kicker': 'НАСТРОЙКИ', 'set.title': 'Настройки', 'set.lang': 'Язык', 'set.langD': 'Язык интерфейса',
   'set.theme': 'Тема оформления', 'set.layout': 'Расположение панелей', 'set.layoutD': 'Ширина, порядок и видимость панелей', 'set.reset': 'Сбросить',
+  'set.eco': 'Экономичный режим', 'set.ecoD': 'Для слабых телефонов и компьютеров: без живого фона, сферы, размытия и лишних анимаций — всё работает плавно. Нужен перезапуск',
+  'eco.restartT': 'Нужно перезапустить приложение', 'eco.restartOn': 'Экономичный режим включится после перезапуска. Ничего переустанавливать не нужно — медиатека и настройки сохранятся.', 'eco.restartOff': 'Полное оформление вернётся после перезапуска. Ничего переустанавливать не нужно — медиатека и настройки сохранятся.', 'eco.now': 'Перезапустить', 'eco.later': 'Позже',
   'set.chime': 'Звук приветствия', 'set.chimeD': 'Мягкий аккорд при запуске', 'set.jam': 'Jamendo API', 'set.jamD': 'Jamendo уже работает. Свой ключ с devportal.jamendo.com нужен, только если общий упрётся в лимит',
   'set.jamPh': 'client_id (необязательно)', 'set.dl': 'Папка загрузок', 'set.dlChange': 'Изменить…', 'set.dlOpen': 'Открыть', 'set.dlReset': 'По умолчанию', 'set.dlDone': 'Загрузки будут сохраняться в новую папку', 'set.dlNoWrite': 'В эту папку нельзя записывать — выберите другую', 'set.keys': 'Горячие клавиши',
   'set.keysD': 'Space — пуск/пауза · ←/→ — перемотка · Ctrl+←/→ — трек · ↑/↓ — громкость<br>Ctrl+K — поиск · P — тональность · A — эмбиент · E — эквалайзер · F — погружение · L — текст песни · K — текст на весь экран · V — визуализация · D — Soft/Deep · Ctrl+S — сохранить с эффектами · Esc — закрыть · S — перемешать · R — повтор · M — без звука',
@@ -333,6 +335,8 @@ const EN = {
   'w.noPreview': 'Preview isn’t available for this source', 'w.rejected': 'Download rejected: {msg}',
   'set.kicker': 'SETTINGS', 'set.title': 'Settings', 'set.lang': 'Language', 'set.langD': 'Interface language',
   'set.theme': 'Theme', 'set.layout': 'Panel layout', 'set.layoutD': 'Width, order and visibility of panels', 'set.reset': 'Reset',
+  'set.eco': 'Economy mode', 'set.ecoD': 'For slower phones and computers: no living background, sphere, blur or extra animation — everything stays smooth. Needs a restart',
+  'eco.restartT': 'Restart the app', 'eco.restartOn': 'Economy mode turns on after a restart. Nothing to reinstall — your library and settings stay.', 'eco.restartOff': 'The full look comes back after a restart. Nothing to reinstall — your library and settings stay.', 'eco.now': 'Restart', 'eco.later': 'Later',
   'set.chime': 'Startup sound', 'set.chimeD': 'A soft chord on launch', 'set.jam': 'Jamendo API', 'set.jamD': 'Jamendo already works. Your own key from devportal.jamendo.com is only needed if the shared one hits its limit',
   'set.jamPh': 'client_id (optional)', 'set.dl': 'Downloads folder', 'set.dlChange': 'Change…', 'set.dlOpen': 'Open', 'set.dlReset': 'Default', 'set.dlDone': 'Downloads will go to the new folder', 'set.dlNoWrite': 'This folder isn’t writable — pick another one', 'set.keys': 'Keyboard shortcuts',
   'set.keysD': 'Space — play/pause · ←/→ — seek · Ctrl+←/→ — track · ↑/↓ — volume<br>Ctrl+K — search · P — pitch · A — ambient · E — equalizer · F — Deep View · L — lyrics · K — full-screen lyrics · V — visualizer · D — Soft/Deep · Ctrl+S — save with effects · Esc — close · S — shuffle · R — repeat · M — mute',
