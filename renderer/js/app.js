@@ -568,6 +568,7 @@ function newPlaylistInline() {
 /* ============================== views ============================== */
 function setView(v) {
   stopPreview();
+  if (tools && tools.isOpen) tools.close();   // the sound rack belongs to where it was opened, not to the next tab
   S.view = v; S.selected.clear();
   $$('.nav-item').forEach((n) => n.classList.toggle('active', n.dataset.view === v.type));
   renderSidebar();

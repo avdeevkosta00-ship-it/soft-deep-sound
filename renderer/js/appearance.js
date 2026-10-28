@@ -353,10 +353,11 @@ export function createAppearance({ S, save, bridge, toast, hslToRgb, rgbToHsl, c
       const L = look();
       wrap.innerHTML = '';
       const tiles = h('div', { class: 'ap-bgs', role: 'radiogroup', 'aria-label': tr('ap.bg') });
-      const none = h('button', { class: 'ap-bg none' + (!L.bgActive ? ' on' : ''), role: 'radio', 'aria-checked': String(!L.bgActive), title: tr('ap.bg.none') }, h('span', {}, tr('ap.bg.none')));
+      const themeOn = !L.bgActive || (ECO && !!presetOf(L.bgActive));   // a scene chosen before economy mode shows the theme now
+      const none = h('button', { class: 'ap-bg none' + (themeOn ? ' on' : ''), role: 'radio', 'aria-checked': String(themeOn), title: tr('ap.bg.none') }, h('span', {}, tr('ap.bg.none')));
       none.onclick = () => { chooseBg(null); paint(); };
       tiles.append(none);
-      for (const id of PRESET_IDS) {
+      for (const id of ECO ? [] : PRESET_IDS) {   // animated scenes don't run in economy mode
         const cv = h('canvas', { width: 184, height: 116 });
         drawPresetThumb(cv, id);
         const key = 'preset:' + id, on = L.bgActive === key;
@@ -470,11 +471,12 @@ export function createAppearance({ S, save, bridge, toast, hslToRgb, rgbToHsl, c
   function panel(getTrack) {
     const glass = seg('blur', [['clear', tr('ap.blur.clear')], ['less', tr('ap.blur.less')], ['normal', tr('ap.blur.normal')], ['more', tr('ap.blur.more')], ['solid', tr('ap.blur.solid')]], tr('ap.blur'), tr('ap.blurD'));
     glass.classList.add('ap-wide');
+    // economy mode turns the living background, animated scenes and glass off: their switches would do nothing
     return h('div', { class: 'ap' },
       accentRow(getTrack),
-      seg('fx', [['live', tr('ap.fx.live')], ['calm', tr('ap.fx.calm')], ['still', tr('ap.fx.still')], ['off', tr('ap.fx.off')]], tr('ap.fx'), tr('ap.fxD')),
+      ECO ? h('div', { class: 'notice ap-eco-note' }, tr('ap.ecoNote')) : seg('fx', [['live', tr('ap.fx.live')], ['calm', tr('ap.fx.calm')], ['still', tr('ap.fx.still')], ['off', tr('ap.fx.off')]], tr('ap.fx'), tr('ap.fxD')),
       bgRow(),
-      glass,
+      ECO ? null : glass,
       fontRow());
   }
 

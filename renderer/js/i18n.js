@@ -77,6 +77,7 @@ const RU = {
   // settings
   'set.kicker': 'НАСТРОЙКИ', 'set.title': 'Настройки', 'set.lang': 'Язык', 'set.langD': 'Язык интерфейса',
   'set.theme': 'Тема оформления', 'set.layout': 'Расположение панелей', 'set.layoutD': 'Ширина, порядок и видимость панелей', 'set.reset': 'Сбросить',
+  'ap.ecoNote': 'Включён экономичный режим: живой фон, анимированные сцены и стекло выключены. Свою картинку поставить можно, видео будет стоять на первом кадре.',
   'set.eco': 'Экономичный режим', 'set.ecoD': 'Для слабых телефонов и компьютеров: без живого фона, сферы, размытия и лишних анимаций — всё работает плавно. Нужен перезапуск',
   'eco.restartT': 'Нужно перезапустить приложение', 'eco.restartOn': 'Экономичный режим включится после перезапуска. Ничего переустанавливать не нужно — медиатека и настройки сохранятся.', 'eco.restartOff': 'Полное оформление вернётся после перезапуска. Ничего переустанавливать не нужно — медиатека и настройки сохранятся.', 'eco.now': 'Перезапустить', 'eco.later': 'Позже',
   'set.chime': 'Звук приветствия', 'set.chimeD': 'Мягкий аккорд при запуске', 'set.jam': 'Jamendo API', 'set.jamD': 'Jamendo уже работает. Свой ключ с devportal.jamendo.com нужен, только если общий упрётся в лимит',
@@ -335,6 +336,7 @@ const EN = {
   'w.noPreview': 'Preview isn’t available for this source', 'w.rejected': 'Download rejected: {msg}',
   'set.kicker': 'SETTINGS', 'set.title': 'Settings', 'set.lang': 'Language', 'set.langD': 'Interface language',
   'set.theme': 'Theme', 'set.layout': 'Panel layout', 'set.layoutD': 'Width, order and visibility of panels', 'set.reset': 'Reset',
+  'ap.ecoNote': 'Economy mode is on: the living background, animated scenes and glass are off. You can still set your own picture; a video stays on its first frame.',
   'set.eco': 'Economy mode', 'set.ecoD': 'For slower phones and computers: no living background, sphere, blur or extra animation — everything stays smooth. Needs a restart',
   'eco.restartT': 'Restart the app', 'eco.restartOn': 'Economy mode turns on after a restart. Nothing to reinstall — your library and settings stay.', 'eco.restartOff': 'The full look comes back after a restart. Nothing to reinstall — your library and settings stay.', 'eco.now': 'Restart', 'eco.later': 'Later',
   'set.chime': 'Startup sound', 'set.chimeD': 'A soft chord on launch', 'set.jam': 'Jamendo API', 'set.jamD': 'Jamendo already works. Your own key from devportal.jamendo.com is only needed if the shared one hits its limit',

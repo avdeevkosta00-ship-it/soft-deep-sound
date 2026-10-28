@@ -12,6 +12,14 @@ function scrolledAbove(node, sheet) {
   return false;
 }
 
+/** the nearest element between the touched one and the sheet (inclusive) that can scroll vertically */
+function scrollerOf(node, sheet) {
+  for (let el = node; el && el !== sheet.parentNode; el = el.parentNode) {
+    if (el.nodeType === 1 && el.scrollHeight > el.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(el).overflowY)) return el;
+  }
+  return null;
+}
+
 /**
  * @param sheet   the element that moves with the finger
  * @param onClose called with the distance pulled when the sheet should close; the sheet is left where the finger let go
@@ -42,7 +50,19 @@ export function swipeToClose(sheet, { onClose, canStart = () => true, threshold 
       sheet.style.transition = 'none';
     }
     e.preventDefault();
-    tr.dy = Math.max(0, t.clientY - tr.y);
+    // the finger turned back up past where the pull began: the sheet sits back and the content scrolls instead,
+    // until it is back at its top. The browser won't resume its own scroll in this touch (the first move was
+    // taken), so it's done here
+    const step = t.clientY - (tr.lastY ?? t.clientY);
+    tr.lastY = t.clientY;
+    const sc = tr.sc === undefined ? (tr.sc = scrollerOf(tr.target, sheet)) : tr.sc;
+    if (tr.dy + step < 0 || (sc && sc.scrollTop > 0)) {
+      const rest = tr.dy + step;   // what's left of the move once the sheet is back in place
+      if (tr.dy) { tr.dy = 0; move(0); }
+      if (sc) sc.scrollTop -= rest;
+      return;
+    }
+    tr.dy += step;
     move(tr.dy);
   }, { passive: false });
   const end = () => {
