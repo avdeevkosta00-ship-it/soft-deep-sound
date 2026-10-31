@@ -204,6 +204,8 @@ export function createLibraryRepair(ctx) {
     go.onclick = () => { tt.close(); ctx.setView({ type: 'health' }); setTimeout(() => start(ids), 120); };
   }
 
-  return { openFinder, repairCard, start, suggestAfterImport, get running() { return job.running; } };
+  /** how many tracks the web could complete right now (the library's plaque on a phone) */
+  const missing = () => (job.running ? 0 : candidates().length);
+  return { openFinder, repairCard, start, suggestAfterImport, missing, get running() { return job.running; } };
 }
 

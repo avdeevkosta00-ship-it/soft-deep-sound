@@ -7,6 +7,7 @@ const cap = window.Capacitor;
 import { cleanName, stripJunk } from './names.js';
 import { createWebSearch } from './websearch.js';
 import { t as tr } from './i18n.js';
+import { createRepair } from './mb-repair.js';
 
 export const isAndroid = !window.sds && !!(cap && cap.isNativePlatform && cap.isNativePlatform());
 export const isMock = !window.sds && !isAndroid;
@@ -192,6 +193,16 @@ async function lrclib({ title, artist, album, duration }, { online } = {}) {
   return text ? { source: 'lrclib', text } : null;
 }
 
+/** the phone's library repair (renderer/js/mb-repair.js): JSON over native HTTP, artwork saved by MusicLibraryPlugin.saveCover */
+let repairInst = null;
+function repairer() {
+  const ua = 'SoftDeepSound (Android; https://github.com/infallibl3/soft-deep-sound)';
+  return repairInst || (repairInst = createRepair({
+    getJSON: (url) => nativeJSON(url, { timeout: 15000, headers: { 'User-Agent': ua } }),
+    saveImage: async (url, key) => (await cap.nativePromise('MusicLibrary', 'saveCover', { url, key })).path || null
+  }));
+}
+
 /** Android: the mock's harmless stubs, with the library, storage and media URLs made real */
 function android() {
   const base = mock();
@@ -260,9 +271,11 @@ function android() {
         }
       };
     })(),
-    // not on the phone yet: page links (the UI hides them), MusicBrainz repair
+    // not on the phone yet: page links (the UI hides them)
     backgrounds: undefined,
-    meta: { repair: async () => null },
+    // tags and artwork from MusicBrainz and the Cover Art Archive, as on the desktop (only names are sent)
+    meta: { repair: (t) => repairer().repair({ title: stripJunk(String(t.title || '').slice(0, 300)), artist: stripJunk(String(t.artist || '').slice(0, 300)), duration: Number(t.duration) || 0 },
+      { wantCover: !!t.wantCover, wantGenre: !!t.wantGenre }) },
     // the player in the notification shade and on the lock screen (android/…/PlaybackService.java)
     app: { ...base.app, minimize: () => cap.nativePromise('MediaControls', 'minimize', {}).catch(() => {}),
       // the phone's status bar icons follow the theme

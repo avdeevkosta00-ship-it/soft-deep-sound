@@ -642,7 +642,26 @@ function viewLibrary(host) {
       isAndroid ? pill(tr('and.rescan'), ICON.kImport, () => pickImport('files'), true) : null].filter(Boolean) : []
   }));
   if (!list.length) return emptyState(host, tr('lib.emptyT'), tr('lib.emptyD'));
+  const plaque = repairPlaque();
+  if (plaque) host.append(plaque);
   host.append(trackList(list.map((t) => t.id), {}));
+}
+/**
+ * On a phone «Состояние медиатеки» has no tab of its own: when tracks lack artwork or tags, the library says
+ * so in one line and opens it with the search already running. Closed with ×, it stays away until next start.
+ */
+let plaqueClosed = false;
+function repairPlaque() {
+  if (!phone.matches || plaqueClosed || !repair) return null;
+  const n = repair.missing();
+  if (!n) return null;
+  const el = h('div', { class: 'lr-plaque' },
+    h('span', { class: 'lr-plaque-ico', html: ICON.note }),
+    h('span', { class: 'lr-plaque-t' }, tr('lr.suggest', { n: tn('tracksGen', n) })),
+    h('button', { class: 'chip-btn on', onClick: () => { setView({ type: 'health' }); setTimeout(() => { repair.start(); const c = $('#lrRepair'); if (c) c.scrollIntoView({ block: 'start', behavior: reducedMotion() ? 'auto' : 'smooth' }); }, 120); } }, tr('lr.plaqueBtn')),
+    h('button', { class: 'icon-btn lr-plaque-x', title: tr('lr.plaqueHide'), 'aria-label': tr('lr.plaqueHide'), html: '<svg viewBox="0 0 12 12" width="11" height="11"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7" stroke="currentColor" stroke-width="1.6"/></svg>',
+      onClick: () => { plaqueClosed = true; el.remove(); } }));
+  return el;
 }
 function viewRecent(host) {
   const list = [...S.tracks].sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0)).slice(0, 60);
@@ -1804,6 +1823,9 @@ async function openSettings() {
     h('div', { class: 'set-row', style: { display: 'block' } }, h('b', { style: { marginBottom: '10px' } }, tr('set.theme')), themeCards()),
     h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('set.eco')), h('small', {}, tr('set.ecoD'))), tg(ecoWanted(), setEco)),
     look.panel(() => S.current),
+    // a phone has no «Состояние медиатеки» tab: it opens from here (and from the library's plaque)
+    phone.matches ? h('div', { class: 'set-row' }, h('div', {}, h('b', {}, tr('set.health')), h('small', {}, tr('set.healthD'))),
+      h('button', { class: 'chip-btn', onClick: () => { closeModal(); setView({ type: 'health' }); } }, tr('set.open'))) : null,
     ...(await playbackRows(tg)),
     ...updateRows(),
     // desktop only: panel layout, the Jamendo key for the web search, keyboard shortcuts

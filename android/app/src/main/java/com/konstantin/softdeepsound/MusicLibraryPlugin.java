@@ -146,6 +146,26 @@ public class MusicLibraryPlugin extends Plugin {
         }, "sds-download").start();
     }
 
+    /** album artwork found by the library repair, cached next to the albums' own; `key` names the file (one per album) */
+    @PluginMethod
+    public void saveCover(PluginCall call) {
+        String url = call.getString("url", ""), key = call.getString("key", "");
+        if (!key.matches("^[a-z0-9-]{4,64}$")) { call.reject("bad key"); return; }
+        new Thread(() -> {
+            try {
+                File dir = new File(getContext().getCacheDir(), "covers");
+                dir.mkdirs();
+                File f = new File(dir, "web-" + key + ".jpg");
+                String path = f.exists() && f.length() > 0 ? f.getAbsolutePath() : SafeDownload.image(url, f);
+                JSObject res = new JSObject();
+                res.put("path", path);
+                call.resolve(res);
+            } catch (Exception e) {
+                call.reject(String.valueOf(e.getMessage()));
+            }
+        }, "sds-cover").start();
+    }
+
     @PluginMethod
     public void exists(PluginCall call) {
         JSArray paths = call.getArray("paths");

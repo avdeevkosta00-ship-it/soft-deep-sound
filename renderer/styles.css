@@ -1527,7 +1527,8 @@ body.mini .mini-bar { position: fixed; inset: 0; display: grid; grid-template-co
 
   /* the sidebar becomes a bottom tab bar */
   .sidebar { grid-column: 1 !important; grid-row: 4 !important; padding: 6px; }
-  .side-head, .playlists, .import-card, .nav-item[data-view="health"] { display: none; }
+  /* four tabs, wide enough for a thumb: «Recent» is the library's own «Recent» sort, «Health» opens from the library and Settings */
+  .side-head, .playlists, .import-card, .nav-item[data-view="health"], .nav-item[data-view="recent"] { display: none; }
   .nav { flex-direction: row; gap: 2px; }
   .nav-item { flex: 1 1 0; min-width: 0; flex-direction: column; gap: 4px; height: auto; padding: 8px 2px 6px; font-size: 10.5px; text-align: center; justify-content: center; }
   .nav-item span { flex: none; width: 100%; }
@@ -1888,3 +1889,16 @@ html.eco .glass { background: rgb(from var(--glass-3) r g b / 1) !important; }
 html.eco body.ready #app > *, html.eco .row, html.eco .view.enter, html.eco .tool-tile, html.eco .deck-cover, html.eco .disc-ring,
 html.eco .cover-frame::after, html.eco body.playing .np-dot { animation: none !important; }
 html.eco .bass-glow, html.eco #shapes { display: none !important; }
+
+/* the library's one-line hint on a phone: tracks the web could complete (app.js repairPlaque) */
+.lr-plaque { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; padding: 8px 6px 8px 12px; border-radius: 14px; background: var(--groove); box-shadow: inset 0 0 0 1px var(--glass-edge); }
+.lr-plaque-ico { display: grid; place-items: center; width: 26px; height: 26px; flex: none; border-radius: 50%; color: var(--accent); background: var(--accent-soft); }
+.lr-plaque-ico svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.6; }
+.lr-plaque-t { flex: 1; min-width: 0; font-size: 12.5px; line-height: 1.3; color: var(--ink-2); }
+.lr-plaque .chip-btn { flex: none; }
+.lr-plaque-x { flex: none; width: 30px; height: 30px; }
+@media (max-width: 760px) {
+  /* «Анализ звука» on a phone: the text gets the whole width, the button goes under it */
+  .h-analyze { flex-wrap: wrap; }
+  .h-analyze > div { flex: 1 1 100%; }
+}

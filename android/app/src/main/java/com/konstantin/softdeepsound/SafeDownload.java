@@ -70,6 +70,56 @@ class SafeDownload {
         } finally { c.disconnect(); }
     }
 
+    static final long MAX_IMAGE = 6L * 1024 * 1024;
+    /** where album artwork may come from: the Cover Art Archive (and archive.org, where it lives), Deezer's and Apple's CDNs */
+    private static final String IMAGE_HOSTS = "(^|.*\\.)(coverartarchive\\.org|archive\\.org|dzcdn\\.net|mzstatic\\.com)$";
+
+    /**
+     * Album artwork for the library repair (renderer/js/mb-repair.js) into `out`. Same rules as audio — https,
+     * public addresses, every redirect checked — plus a short list of artwork hosts, an image content type
+     * and a 6 MB cap. @return the file's path, or null when the server has no such image
+     */
+    static String image(String url, File out) throws Exception {
+        String current = url;
+        HttpURLConnection c = null;
+        for (int hop = 0; hop <= 6 && c == null; hop++) {
+            URL u = new URL(current);
+            assertSafe(u);
+            if (!u.getHost().toLowerCase(Locale.ROOT).matches(IMAGE_HOSTS)) throw new Exception("blocked host");
+            HttpURLConnection h = (HttpURLConnection) u.openConnection();
+            h.setInstanceFollowRedirects(false);
+            h.setConnectTimeout(15000); h.setReadTimeout(20000);
+            h.setRequestProperty("User-Agent", "SoftDeepSound (Android; https://github.com/infallibl3/soft-deep-sound)");
+            h.setRequestProperty("Accept", "image/*");
+            int code = h.getResponseCode();
+            String loc = h.getHeaderField("Location");
+            if (code >= 300 && code < 400 && loc != null) { h.disconnect(); current = new URL(u, loc).toString(); continue; }
+            c = h;
+        }
+        if (c == null) throw new Exception("too many redirects");
+        try {
+            int code = c.getResponseCode();
+            if (code == 404) return null;
+            if (code != 200) throw new Exception("HTTP " + code);
+            String type = String.valueOf(c.getContentType()).toLowerCase(Locale.ROOT);
+            if (!type.startsWith("image/")) return null;
+            long len = c.getContentLengthLong();
+            if (len > MAX_IMAGE) return null;
+            File part = new File(out.getPath() + ".part");
+            long total = 0;
+            try (InputStream in = c.getInputStream(); OutputStream o = new FileOutputStream(part)) {
+                byte[] buf = new byte[32 * 1024];
+                for (int n; (n = in.read(buf)) > 0; ) {
+                    total += n;
+                    if (total > MAX_IMAGE) { o.close(); part.delete(); return null; }
+                    o.write(buf, 0, n);
+                }
+            }
+            if (total == 0 || !part.renameTo(out)) { part.delete(); return null; }
+            return out.getAbsolutePath();
+        } finally { c.disconnect(); }
+    }
+
     /** follows redirects by hand so that every hop is checked before it is requested */
     private static HttpURLConnection open(String start, String referer) throws Exception {
         String current = start;
