@@ -10,7 +10,8 @@
     "start": "electron .",
     "dev": "electron . --dev",
     "dist": "electron-builder --win nsis portable --publish never",
-    "dist:dir": "electron-builder --win dir --publish never"
+    "dist:dir": "electron-builder --win dir --publish never",
+    "dist:mac": "electron-builder --mac --publish never"
   },
   "dependencies": {
     "discord-rpc": "^4.0.1",
@@ -41,6 +42,33 @@
         "nsis",
         "portable"
       ]
+    },
+    "mac": {
+      "icon": "build/icon.png",
+      "category": "public.app-category.music",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "identity": "-",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "artifactName": "SoftDeepSound-${version}-mac-${arch}.${ext}"
+    },
+    "dmg": {
+      "title": "Soft&Deep Sound ${version}"
     },
     "nsis": {
       "oneClick": false,

@@ -1875,8 +1875,9 @@ function bindChrome() {
   $$('[data-view]').forEach((b) => b.addEventListener('click', () => setView({ type: b.dataset.view })));
   bridge.onOpenFiles((files) => openFiles(files));
   if (bridge.app.pendingFiles) setTimeout(async () => { const f = await bridge.app.pendingFiles(); if (f && f.length) openFiles(f); }, 0);
-  // maximise button shows "restore" while maximised
-  if (bridge.win && bridge.win.onState) bridge.win.onState(({ maximized }) => {
+  // maximise button shows "restore" while maximised; on macOS full screen hides the traffic lights
+  if (bridge.win && bridge.win.onState) bridge.win.onState(({ maximized, fullscreen }) => {
+    if (fullscreen !== undefined) { document.documentElement.classList.toggle('fs', fullscreen); return; }
     const b = $('[data-win="max"]');
     if (!b) return;
     b.innerHTML = maximized ? '<svg viewBox="0 0 12 12"><rect x="2" y="3.6" width="6.4" height="6.4" rx="1.3"/><path d="M4 3.6V2.8A1 1 0 0 1 5 1.8h4.2a1 1 0 0 1 1 1V7a1 1 0 0 1-1 1h-.8"/></svg>'

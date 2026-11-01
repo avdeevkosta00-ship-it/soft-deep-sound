@@ -4,6 +4,7 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 // Narrow, explicit bridge — the renderer never gets Node or raw ipcRenderer.
 contextBridge.exposeInMainWorld('sds', {
   isElectron: true,
+  platform: process.platform,
   // %27: covers live under the user folder; an apostrophe (O'Brien) must not break CSS url('…')
   mediaUrl: (p) => 'sds://media/f?p=' + encodeURIComponent(p).replace(/'/g, '%27').replace(/\(/g, '%28').replace(/\)/g, '%29'),
   pathForFile: (file) => webUtils.getPathForFile(file),

@@ -232,6 +232,10 @@ body.ready #app { opacity: 1; transform: none; filter: none; transition: opacity
 .win-ctrls button:hover { background: var(--hover); }
 .win-ctrls button.close:hover { background: #e8462a; color: #fff; }
 .win-ctrls svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.3; }
+/* macOS: the system traffic lights sit at the left of the titlebar (not in full screen, where they hide) */
+html.mac .titlebar { padding-left: 74px; }
+html.mac.fs .titlebar { padding-left: 0; }
+html.mac .win-ctrls [data-win] { display: none; }
 
 /* ======================= sidebar ======================= */
 .sidebar { grid-column: 1; grid-row: 2; display: flex; flex-direction: column; padding: 12px; min-height: 0; }

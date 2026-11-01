@@ -266,6 +266,9 @@ const RU = {
   'ss.avgBpm': '≈ {n} BPM', 'ss.reroll': 'Пересобрать', 'ss.save': 'Сохранить как плейлист', 'ss.play': 'Слушать', 'ss.plName': 'Сессия · {mood}', 'ss.started': 'Сессия «{mood}» началась',
   'mood.calm': 'Спокойное', 'mood.calmD': 'Тихо и мягко', 'mood.deep': 'Глубокое', 'mood.deepD': 'Плотный бас, погружение', 'mood.energetic': 'Энергичное', 'mood.energeticD': 'Быстро и ярко', 'mood.dark': 'Мрачное', 'mood.darkD': 'Минор и тень',
   'set.auto': 'Запускать вместе с Windows', 'set.autoD': 'Плеер тихо стартует в трее при входе в систему',
+  'set.auto.mac': 'Открывать при входе в систему', 'set.autoD.mac': 'Плеер тихо стартует в строке меню, когда вы входите в macOS',
+  'set.tray.mac': 'Закрывать в строку меню', 'set.trayD.mac': 'Кнопка закрытия прячет окно, музыка продолжает играть. Выйти — Ctrl+Q или через значок в строке меню',
+  'pb.outDefault.mac': 'Как в macOS', 'kbd.search': 'Ctrl K',
   'set.tray': 'Закрывать в трей', 'set.trayD': 'Крестик прячет окно, музыка продолжает играть. Выйти — через значок в трее',
   'set.bg': 'Фоновый анализ библиотеки', 'set.bgD': 'Понемногу анализирует треки для «Похожих» и «Умной сессии»',
   'eq.flat': 'Ровно', 'eq.bass': 'Бас', 'eq.warm': 'Тепло', 'eq.vocal': 'Вокал', 'eq.bright': 'Ярко', 'eq.loud': 'Насыщенно', 'eq.lofi': 'Лоу-фай', 'eq.night': 'Ночь'
@@ -523,6 +526,9 @@ const EN = {
   'ss.avgBpm': '≈ {n} BPM', 'ss.reroll': 'Reshuffle', 'ss.save': 'Save as playlist', 'ss.play': 'Play', 'ss.plName': 'Session · {mood}', 'ss.started': '“{mood}” session started',
   'mood.calm': 'Calm', 'mood.calmD': 'Quiet and soft', 'mood.deep': 'Deep', 'mood.deepD': 'Dense bass, immersive', 'mood.energetic': 'Energetic', 'mood.energeticD': 'Fast and bright', 'mood.dark': 'Dark', 'mood.darkD': 'Minor and shadow',
   'set.auto': 'Start with Windows', 'set.autoD': 'The player quietly starts in the tray when you sign in',
+  'set.auto.mac': 'Open at login', 'set.autoD.mac': 'The player quietly starts in the menu bar when you log in to macOS',
+  'set.tray.mac': 'Close to the menu bar', 'set.trayD.mac': 'The close button hides the window and the music keeps playing. Quit with Ctrl+Q or from the menu bar icon',
+  'pb.outDefault.mac': 'As in macOS', 'kbd.search': 'Ctrl K',
   'set.tray': 'Close to tray', 'set.trayD': 'The × hides the window and the music keeps playing. Quit from the tray icon',
   'set.bg': 'Background library analysis', 'set.bgD': 'Slowly analyses tracks for Similar and Smart session',
   'eq.flat': 'Flat', 'eq.bass': 'Bass', 'eq.warm': 'Warm', 'eq.vocal': 'Vocal', 'eq.bright': 'Bright', 'eq.loud': 'Loudness', 'eq.lofi': 'Lo-Fi', 'eq.night': 'Night'
@@ -585,9 +591,13 @@ export const getLang = () => lang;
 export function setLang(l) { lang = DICT[l] ? l : 'en'; document.documentElement.lang = lang; }
 export function detectLang() { return /^(ru|uk|be|kk)/i.test(navigator.language || '') ? 'ru' : 'en'; }
 
-const fill = (s, vars) => String(s).replace(/\{(\w+)\}/g, (_, k) => (vars && vars[k] != null ? vars[k] : ''));
+// on macOS: Mac wording where a string has a «.mac» twin, and shortcuts written the Mac way (Ctrl+K → ⌘K)
+const MAC = document.documentElement.classList.contains('mac');
+const macKeys = (s) => (MAC ? s.replace(/Ctrl[+ ]Alt\+/g, '⌃⌥').replace(/Ctrl[+ ]/g, '⌘') : s);
+const fill = (s, vars) => macKeys(String(s).replace(/\{(\w+)\}/g, (_, k) => (vars && vars[k] != null ? vars[k] : '')));
 export function t(key, vars) {
-  const v = (DICT[lang] || EN)[key] ?? EN[key] ?? key;
+  const d = DICT[lang] || EN;
+  const v = (MAC && (d[key + '.mac'] ?? EN[key + '.mac'])) || (d[key] ?? EN[key] ?? key);
   return Array.isArray(v) ? v : fill(v, vars);
 }
 /** plural-aware: tn('tracks', 5) → "5 треков" / "5 tracks" */

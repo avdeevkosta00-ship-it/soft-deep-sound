@@ -46,6 +46,7 @@ const defaultDownloadsDir = () => path.join(app.getPath('music'), 'Soft&Deep Sou
 const downloadsDir = () => (prefs.downloadsDir && fs.existsSync(prefs.downloadsDir) ? prefs.downloadsDir : defaultDownloadsDir());
 
 let win;
+const isMac = process.platform === 'darwin';
 
 /* ---------------------------------- protocol ---------------------------------- */
 async function serveFile(filePath, request, forceType) {
@@ -110,7 +111,9 @@ function registerProtocol() {
 function createWindow() {
   win = new BrowserWindow({
     width: 1360, height: 860, minWidth: 1040, minHeight: 680, ...restoredBounds(),
-    frame: false, show: false, backgroundColor: '#e8ebf3',
+    // macOS keeps its own traffic lights over our titlebar; Windows draws our own buttons
+    ...(isMac ? { titleBarStyle: 'hidden', trafficLightPosition: { x: 18, y: 28 } } : { frame: false }),
+    show: false, backgroundColor: '#e8ebf3',
     title: 'Soft&Deep Sound',
     icon: path.join(__dirname, 'build', 'icon.png'),
     webPreferences: {
@@ -121,7 +124,7 @@ function createWindow() {
       spellcheck: false
     }
   });
-  Menu.setApplicationMenu(null);
+  Menu.setApplicationMenu(isMac ? macMenu() : null);
   win.loadURL('sds://app/index.html');
   // a crashed renderer would leave a dead window: reload it (but don't loop on a renderer that keeps dying)
   let crashes = [];
@@ -158,6 +161,8 @@ function createWindow() {
   win.on('resize', saveBounds); win.on('move', saveBounds); win.on('maximize', saveBounds); win.on('unmaximize', saveBounds);
   win.on('maximize', () => win.webContents.send('win:state', { maximized: true }));
   win.on('unmaximize', () => win.webContents.send('win:state', { maximized: false }));
+  win.on('enter-full-screen', () => win.webContents.send('win:state', { fullscreen: true }));
+  win.on('leave-full-screen', () => win.webContents.send('win:state', { fullscreen: false }));
 
   // Renderer never navigates away or opens popups; external links go to the system browser.
   win.webContents.on('will-navigate', (e, url) => { if (!url.startsWith('sds://')) e.preventDefault(); });
@@ -166,6 +171,15 @@ function createWindow() {
     return { action: 'deny' };
   });
   if (process.argv.includes('--dev')) win.webContents.openDevTools({ mode: 'detach' });
+}
+
+/** macOS needs an app menu: without it ⌘Q, ⌘W, ⌘H and even ⌘C / ⌘V in text fields do nothing */
+function macMenu() {
+  return Menu.buildFromTemplate([
+    { role: 'appMenu', submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { label: tm('tray.quit'), accelerator: 'Command+Q', click: quitApp }] },
+    { role: 'editMenu' },
+    { role: 'windowMenu', submenu: [{ role: 'minimize' }, { role: 'zoom' }, { role: 'togglefullscreen' }, { type: 'separator' }, { label: tm('win.close'), accelerator: 'Command+W', click: () => win && win.close() }] }
+  ]);
 }
 
 /* ---------------------------------- metadata ---------------------------------- */
@@ -305,11 +319,13 @@ function setMini(on, top) {
     win.setBounds({ x: wa.x + wa.width - MINI.w - 24, y: wa.y + wa.height - MINI.h - 24, width: MINI.w, height: MINI.h });
     win.setResizable(false);
     win.setAlwaysOnTop(top, 'floating');
+    if (isMac) win.setWindowButtonVisibility(false);
   } else if (!on && mini) {
     const back = mini; mini = null;
     win.setAlwaysOnTop(false);
     win.setResizable(true);
     win.setMinimumSize(1040, 680);
+    if (isMac) win.setWindowButtonVisibility(true);
     win.setBounds(back.bounds);
     if (back.maximized) win.maximize();
   } else if (on && mini) win.setAlwaysOnTop(top, 'floating');
@@ -400,7 +416,7 @@ function buildTrayMenu() {
     { type: 'separator' },
     { label: win && win.isVisible() ? tm('tray.hide') : tm('tray.show'), icon: img('menu-show.png'), click: () => (win.isVisible() && win.isFocused() ? win.hide() : showWindow()) },
     { label: tm('tray.closeToTray'), type: 'checkbox', checked: prefs.closeToTray, click: (it) => { prefs.closeToTray = it.checked; savePrefs(); } },
-    ...(app.isPackaged ? [{ label: tm('tray.autostart'), type: 'checkbox', checked: autostartOn(), click: (it) => setAutostart(it.checked) }] : []),
+    ...(app.isPackaged ? [{ label: tm(isMac ? 'tray.autostartMac' : 'tray.autostart'), type: 'checkbox', checked: autostartOn(), click: (it) => setAutostart(it.checked) }] : []),
     { label: tm('tray.quit'), icon: img('menu-quit.png'), click: quitApp }
   ]));
 }
@@ -420,7 +436,8 @@ function setAutostart(on) {
   try { app.setLoginItemSettings({ openAtLogin: on, args: ['--hidden'] }); } catch (e) { logError('autostart', e); }
   buildTrayMenu();
 }
-const startHidden = process.argv.includes('--hidden');
+// macOS login items take no arguments: there the system tells us it started the app at login
+const startHidden = process.argv.includes('--hidden') || (isMac && (() => { try { return app.getLoginItemSettings().wasOpenedAtLogin; } catch { return false; } })());
 
 /** taskbar thumbnail toolbar (hover the taskbar button): ⏮ ⏯ ⏭ */
 function updateThumbar() {
@@ -603,7 +620,7 @@ function registerIpc() {
   });
 
   // playlist import: only track lists are read (title, artist, album, length); nothing is downloaded
-  ipcMain.handle('app:lang', (_e, l) => { setLang(l); buildTrayMenu(); updateThumbar(); });
+  ipcMain.handle('app:lang', (_e, l) => { setLang(l); buildTrayMenu(); updateThumbar(); if (isMac) Menu.setApplicationMenu(macMenu()); });
   ipcMain.handle('app:paths', () => ({ downloads: downloadsDir(), userData: userDir(), downloadsCustom: downloadsDir() !== defaultDownloadsDir() }));
   ipcMain.handle('downloads:pick', async () => {
     const res = await dialog.showOpenDialog(win, { title: tm('dlg.dl'), defaultPath: downloadsDir(), properties: ['openDirectory', 'createDirectory'] });
@@ -670,14 +687,23 @@ else {
     loadPrefs();
     musicbrainz.init({ version: app.getVersion(), coversDir });
     // the portable build can't replace itself; it only hears that a new version exists
-    updater.init({ send: (st) => { if (win && !win.isDestroyed()) win.webContents.send('update:state', st); }, canInstall: !process.env.PORTABLE_EXECUTABLE_DIR, log: (k, e) => logError(k, e) });
+    updater.init({ send: (st) => { if (win && !win.isDestroyed()) win.webContents.send('update:state', st); }, canInstall: !process.env.PORTABLE_EXECUTABLE_DIR && !isMac, log: (k, e) => logError(k, e) });
     lyrics.init({ version: app.getVersion(), userDir, audioExt: AUDIO_EXT, names, identify: musicbrainz.identify, sim: musicbrainz.sim, norm: musicbrainz.norm });
     registerIpc();
     createWindow();
     createTray();
     // files from "Open with": the renderer asks for them once it is ready (no fixed delay)
-    pendingFiles = process.argv.slice(1).filter((a) => AUDIO_EXT.has(path.extname(a).toLowerCase())).map((a) => path.resolve(a));
+    pendingFiles = pendingFiles.concat(process.argv.slice(1).filter((a) => AUDIO_EXT.has(path.extname(a).toLowerCase())).map((a) => path.resolve(a)));
   });
+  // macOS: files opened from Finder or dropped on the Dock icon come as events (also before the window exists)
+  app.on('open-file', (e, p) => {
+    e.preventDefault();
+    if (!AUDIO_EXT.has(path.extname(p).toLowerCase())) return;
+    if (win && !win.isDestroyed() && app.isReady() && !win.webContents.isLoading()) { showWindow(); win.webContents.send('open-files', [p]); }
+    else pendingFiles.push(p);
+  });
+  // macOS: a click on the Dock icon brings the hidden window back
+  app.on('activate', showWindow);
   app.on('before-quit', (e) => {
     quitting = true;
     if (!flushed && win && !win.isDestroyed()) { e.preventDefault(); flushRenderer().then(() => app.quit()); }
